@@ -1,5 +1,6 @@
 import axios, { AxiosInstance } from 'axios';
 import type { IkariamSession, City, Resources, ApiResponse } from '../types';
+import { parseCookies, validateCookies } from '../utils/cookieParser';
 
 /**
  * Service API pour interagir avec Ikariam
@@ -26,19 +27,32 @@ export class IkariamApi {
    */
   async initSession(cookie: string, server: string): Promise<ApiResponse<IkariamSession>> {
     try {
-      // Vérifie que le cookie contient au moins PHPSESSID
-      if (!cookie.includes('PHPSESSID')) {
+      // Parse les cookies (supporte format standard et format Ikabot JSON)
+      const parsedCookie = parseCookies(cookie);
+
+      if (!parsedCookie) {
         return {
           success: false,
-          error: 'Le cookie doit contenir PHPSESSID. Assurez-vous de copier TOUS les cookies depuis votre navigateur.',
+          error: 'Format de cookie invalide. Utilisez le format standard ou le format Ikabot JSON.',
         };
       }
 
-      this.session = { cookie, server };
+      // Valide que les cookies contiennent les éléments essentiels
+      const validation = validateCookies(parsedCookie);
+      if (!validation.valid) {
+        return {
+          success: false,
+          error: validation.error || 'Cookies invalides',
+        };
+      }
+
+      this.session = { cookie: parsedCookie, server };
 
       // Configure l'instance axios avec le cookie
       this.axiosInstance.defaults.baseURL = `https://${server}.ikariam.gameforge.com`;
-      this.axiosInstance.defaults.headers.common['Cookie'] = cookie;
+      this.axiosInstance.defaults.headers.common['Cookie'] = parsedCookie;
+
+      console.log('Attempting session validation with server:', server);
 
       // Vérifie que la session est valide en récupérant les données du joueur
       const isValid = await this.validateSession();

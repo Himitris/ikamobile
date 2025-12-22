@@ -66,13 +66,18 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
         <View style={styles.instructionsBox}>
           <Text style={styles.instructionsTitle}>Comment obtenir votre cookie ?</Text>
           <Text style={styles.instructionsText}>
+            <Text style={styles.bold}>Méthode 1 - Standard :{'\n'}</Text>
             1. Ouvrez Ikariam dans votre navigateur{'\n'}
             2. Connectez-vous à votre compte{'\n'}
-            3. Appuyez sur F12 (outils développeur){'\n'}
-            4. Onglet Console, tapez: document.cookie{'\n'}
-            5. Copiez TOUT le résultat{'\n'}
+            3. F12 → Console → Tapez: document.cookie{'\n'}
+            4. Copiez TOUT le résultat{'\n'}
             {'\n'}
-            ⚠️ IMPORTANT: Le cookie doit contenir PHPSESSID
+            <Text style={styles.bold}>Méthode 2 - Format Ikabot :{'\n'}</Text>
+            Collez directement l'objet JSON d'Ikabot{'\n'}
+            Ex: {'{'}&#34;PHPSESSID&#34;: &#34;abc123&#34;, &#34;ikariam&#34;: &#34;...&#34;{'}'}
+            {'\n'}
+            {'\n'}
+            ⚠️ IMPORTANT: Doit contenir PHPSESSID
           </Text>
         </View>
 
@@ -162,6 +167,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#34495e',
     lineHeight: 22,
+  },
+  bold: {
+    fontWeight: 'bold',
+    color: '#2c3e50',
   },
   form: {
     marginBottom: 20,
