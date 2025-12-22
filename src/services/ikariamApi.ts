@@ -470,12 +470,42 @@ export class IkariamApi {
               const name = nameMatch ? nameMatch[1].replace(/&nbsp;/g, ' ').trim() : '';
 
               if (buildingType && level > 0) {
+                // Tente d'extraire les coûts et le temps d'upgrade depuis le HTML
+                // Ces infos sont souvent dans les attributs data- ou dans le contenu
+                let upgradeTime: number | undefined;
+                let upgradeCost: Resources | undefined;
+
+                // Cherche le temps de construction (format: data-constructiontime="3600" en secondes)
+                const timeMatch = content.match(/data-constructiontime="(\d+)"/);
+                if (timeMatch) {
+                  upgradeTime = parseInt(timeMatch[1]);
+                }
+
+                // Cherche les coûts dans les attributs data-costs
+                const costsMatch = content.match(/data-costs="([^"]+)"/);
+                if (costsMatch) {
+                  try {
+                    const costsData = JSON.parse(costsMatch[1].replace(/&quot;/g, '"'));
+                    upgradeCost = {
+                      wood: parseNumber(costsData['1'] || 0),
+                      wine: parseNumber(costsData['2'] || 0),
+                      marble: parseNumber(costsData['3'] || 0),
+                      crystal: parseNumber(costsData['4'] || 0),
+                      sulfur: parseNumber(costsData['5'] || 0),
+                    };
+                  } catch (e) {
+                    console.warn('⚠️ Impossible de parser les coûts pour', buildingType);
+                  }
+                }
+
                 buildings.push({
                   id: `${position}`,
                   name: name || buildingType,
                   level,
                   position,
                   type: buildingType as any,
+                  upgradeTime,
+                  upgradeCost,
                 });
               }
             }
@@ -486,9 +516,53 @@ export class IkariamApi {
         console.error('⚠️ getCityDetails: Erreur parsing bâtiments:', error);
       }
 
-      // Parse les constructions en cours (DÉSACTIVÉ temporairement - cause freeze)
-      console.log('📍 getCityDetails: Skip constructions (matchAll cause freeze)');
-      const constructionQueue: any[] = [];
+      // Parse les constructions en cours
+      let constructionQueue: Construction[] = [];
+      try {
+        // Cherche la section de la file de construction
+        const queueMatch = html.match(/id="constructionQueue"[\s\S]*?<\/ul>/);
+        if (queueMatch) {
+          const queueHtml = queueMatch[0];
+
+          // Parse chaque élément de la file (limite à 10 pour éviter les problèmes)
+          const itemMatches = queueHtml.match(/<li[^>]*class="[^"]*queueItem[^"]*"[^>]*>[\s\S]*?<\/li>/g);
+
+          if (itemMatches && itemMatches.length > 0) {
+            for (let i = 0; i < Math.min(itemMatches.length, 10); i++) {
+              const item = itemMatches[i];
+
+              // Extrait le nom du bâtiment
+              const nameMatch = item.match(/title="([^"]+)"/);
+              const buildingName = nameMatch ? nameMatch[1].replace(/&nbsp;/g, ' ').trim() : '';
+
+              // Extrait le niveau cible
+              const levelMatch = item.match(/Niveau (\d+)/i) || item.match(/Level (\d+)/i);
+              const targetLevel = levelMatch ? parseInt(levelMatch[1]) : 0;
+
+              // Extrait le temps de fin (timestamp)
+              const timeMatch = item.match(/data-endtime="(\d+)"/);
+              const completionTime = timeMatch ? parseInt(timeMatch[1]) * 1000 : Date.now();
+
+              // Extrait l'ID du bâtiment
+              const idMatch = item.match(/data-buildingid="(\d+)"/);
+              const buildingId = idMatch ? idMatch[1] : '';
+
+              if (buildingName && targetLevel > 0) {
+                constructionQueue.push({
+                  buildingId,
+                  buildingName,
+                  targetLevel,
+                  completionTime,
+                  currentLevel: targetLevel - 1,
+                });
+              }
+            }
+          }
+        }
+        console.log('📍 getCityDetails: Constructions en cours:', constructionQueue.length);
+      } catch (error) {
+        console.error('⚠️ getCityDetails: Erreur parsing constructions:', error);
+      }
 
       console.log('📍 getCityDetails: Constructions en cours:', constructionQueue.length);
       console.log('📍 getCityDetails: Prêt à retourner les données');

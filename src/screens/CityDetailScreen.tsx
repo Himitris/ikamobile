@@ -9,7 +9,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { ikariamApi } from '../services/ikariamApi';
-import type { City, Construction, Building } from '../types';
+import type { City, Construction, Building, Resources } from '../types';
 import { BUILDING_NAMES } from '../constants/game';
 import { IkariamText, IkariamCard, IkariamButton, IkariamBadge } from '@/components/ikariam';
 import { IkariamTheme } from '@/constants/ikariamTheme';
@@ -24,6 +24,7 @@ export const CityDetailScreen: React.FC<CityDetailScreenProps> = ({ cityId, onBa
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [buildingSortBy, setBuildingSortBy] = useState<'level' | 'type' | 'name'>('level');
 
   const loadCityDetails = async () => {
     try {
@@ -58,13 +59,50 @@ export const CityDetailScreen: React.FC<CityDetailScreenProps> = ({ cityId, onBa
   };
 
   const handleBuildingUpgrade = async (building: Building) => {
+    if (!city) return;
+
+    // Vérifie si on a assez de ressources
+    const hasEnoughResources = building.upgradeCost
+      ? Object.entries(building.upgradeCost).every(([resource, cost]) => {
+          const currentAmount = city.resources[resource as keyof typeof city.resources] || 0;
+          return currentAmount >= cost;
+        })
+      : true;
+
+    // Construit le message avec le coût
+    let message = `Voulez-vous améliorer ${building.name} au niveau ${building.level + 1} ?`;
+
+    if (building.upgradeCost) {
+      const costs = [];
+      if (building.upgradeCost.wood > 0) costs.push(`🪵 ${formatNumber(building.upgradeCost.wood)}`);
+      if (building.upgradeCost.wine > 0) costs.push(`🍷 ${formatNumber(building.upgradeCost.wine)}`);
+      if (building.upgradeCost.marble > 0) costs.push(`⚪ ${formatNumber(building.upgradeCost.marble)}`);
+      if (building.upgradeCost.crystal > 0) costs.push(`💎 ${formatNumber(building.upgradeCost.crystal)}`);
+      if (building.upgradeCost.sulfur > 0) costs.push(`⚠️ ${formatNumber(building.upgradeCost.sulfur)}`);
+
+      if (costs.length > 0) {
+        message += `\n\nCoût: ${costs.join(', ')}`;
+      }
+    }
+
+    if (building.upgradeTime) {
+      const hours = Math.floor(building.upgradeTime / 3600);
+      const minutes = Math.floor((building.upgradeTime % 3600) / 60);
+      message += `\nTemps: ${hours}h ${minutes}m`;
+    }
+
+    if (!hasEnoughResources) {
+      message += '\n\n⚠️ Vous n\'avez pas assez de ressources !';
+    }
+
     Alert.alert(
       `Améliorer ${building.name}`,
-      `Voulez-vous améliorer ${building.name} au niveau ${building.level + 1} ?`,
+      message,
       [
         { text: 'Annuler', style: 'cancel' },
         {
-          text: 'Améliorer',
+          text: hasEnoughResources ? 'Améliorer' : 'Améliorer quand même',
+          style: hasEnoughResources ? 'default' : 'destructive',
           onPress: async () => {
             try {
               const result = await ikariamApi.startConstruction(cityId, building.position.toString());
@@ -81,6 +119,20 @@ export const CityDetailScreen: React.FC<CityDetailScreenProps> = ({ cityId, onBa
         },
       ]
     );
+  };
+
+  const sortBuildings = (buildings: Building[]): Building[] => {
+    const sorted = [...buildings];
+    switch (buildingSortBy) {
+      case 'level':
+        return sorted.sort((a, b) => b.level - a.level);
+      case 'name':
+        return sorted.sort((a, b) => a.name.localeCompare(b.name));
+      case 'type':
+        return sorted.sort((a, b) => a.type.localeCompare(b.type));
+      default:
+        return sorted;
+    }
   };
 
   const formatNumber = (num: number): string => {
@@ -265,18 +317,54 @@ export const CityDetailScreen: React.FC<CityDetailScreenProps> = ({ cityId, onBa
         {/* Bâtiments */}
         {city.buildings && city.buildings.length > 0 && (
           <IkariamCard style={styles.section}>
-            <IkariamText variant="subheading" style={styles.sectionTitle}>
-              Bâtiments ({city.buildings.length})
-            </IkariamText>
-            {city.buildings
-              .sort((a, b) => b.level - a.level)
-              .map((building) => (
-                <BuildingItem
-                  key={building.id}
-                  building={building}
-                  onUpgrade={() => handleBuildingUpgrade(building)}
-                />
-              ))}
+            <View style={styles.buildingHeader}>
+              <IkariamText variant="subheading" style={styles.sectionTitle}>
+                Bâtiments ({city.buildings.length})
+              </IkariamText>
+              <View style={styles.sortButtons}>
+                <TouchableOpacity
+                  style={[styles.sortButton, buildingSortBy === 'level' && styles.sortButtonActive]}
+                  onPress={() => setBuildingSortBy('level')}
+                >
+                  <IkariamText
+                    variant="caption"
+                    color={buildingSortBy === 'level' ? 'light' : 'secondary'}
+                  >
+                    Niveau
+                  </IkariamText>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.sortButton, buildingSortBy === 'name' && styles.sortButtonActive]}
+                  onPress={() => setBuildingSortBy('name')}
+                >
+                  <IkariamText
+                    variant="caption"
+                    color={buildingSortBy === 'name' ? 'light' : 'secondary'}
+                  >
+                    Nom
+                  </IkariamText>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.sortButton, buildingSortBy === 'type' && styles.sortButtonActive]}
+                  onPress={() => setBuildingSortBy('type')}
+                >
+                  <IkariamText
+                    variant="caption"
+                    color={buildingSortBy === 'type' ? 'light' : 'secondary'}
+                  >
+                    Type
+                  </IkariamText>
+                </TouchableOpacity>
+              </View>
+            </View>
+            {sortBuildings(city.buildings).map((building) => (
+              <BuildingItem
+                key={building.id}
+                building={building}
+                currentResources={city.resources}
+                onUpgrade={() => handleBuildingUpgrade(building)}
+              />
+            ))}
           </IkariamCard>
         )}
       </ScrollView>
@@ -340,10 +428,19 @@ const ConstructionItem: React.FC<{ construction: Construction }> = ({ constructi
 
 const BuildingItem: React.FC<{
   building: Building;
+  currentResources: Resources;
   onUpgrade: () => void;
-}> = ({ building, onUpgrade }) => {
+}> = ({ building, currentResources, onUpgrade }) => {
   // Récupère le nom localisé du bâtiment
   const buildingName = BUILDING_NAMES[building.type] || building.name || 'Bâtiment inconnu';
+
+  // Vérifie si on a assez de ressources
+  const hasEnoughResources = building.upgradeCost
+    ? Object.entries(building.upgradeCost).every(([resource, cost]) => {
+        const currentAmount = currentResources[resource as keyof typeof currentResources] || 0;
+        return currentAmount >= cost;
+      })
+    : true;
 
   // Icônes pour différents types de bâtiments
   const getBuildingIcon = (type: string): string => {
@@ -370,28 +467,115 @@ const BuildingItem: React.FC<{
     return icons[type.toLowerCase()] || '🏗️';
   };
 
+  const formatNumber = (num: number): string => {
+    return num.toLocaleString('fr-FR');
+  };
+
+  const formatTime = (seconds: number): string => {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+  };
+
   return (
-    <View style={styles.buildingItem}>
-      <View style={styles.buildingInfo}>
-        <View style={styles.buildingHeader}>
-          <IkariamText variant="body" style={styles.buildingIcon}>
-            {getBuildingIcon(building.type)}
-          </IkariamText>
-          <IkariamText variant="body" weight="semibold" style={styles.buildingName}>
-            {buildingName}
-          </IkariamText>
+    <View style={styles.buildingItemContainer}>
+      <View style={styles.buildingItem}>
+        <View style={styles.buildingMainInfo}>
+          <View style={styles.buildingHeaderRow}>
+            <IkariamText variant="body" style={styles.buildingIconText}>
+              {getBuildingIcon(building.type)}
+            </IkariamText>
+            <IkariamText variant="body" weight="semibold" style={styles.buildingNameText}>
+              {buildingName}
+            </IkariamText>
+            <IkariamBadge label={`Niv. ${building.level}`} variant="default" size="sm" />
+          </View>
+
+          {/* Coût d'upgrade */}
+          {building.upgradeCost && (
+            <View style={styles.upgradeCostRow}>
+              <IkariamText variant="caption" color="secondary" style={styles.costLabel}>
+                Coût:
+              </IkariamText>
+              <View style={styles.costList}>
+                {building.upgradeCost.wood > 0 && (
+                  <IkariamText
+                    variant="caption"
+                    color={
+                      currentResources.wood >= building.upgradeCost.wood ? 'primary' : 'tertiary'
+                    }
+                  >
+                    🪵 {formatNumber(building.upgradeCost.wood)}
+                  </IkariamText>
+                )}
+                {building.upgradeCost.wine > 0 && (
+                  <IkariamText
+                    variant="caption"
+                    color={
+                      currentResources.wine >= building.upgradeCost.wine ? 'primary' : 'tertiary'
+                    }
+                  >
+                    🍷 {formatNumber(building.upgradeCost.wine)}
+                  </IkariamText>
+                )}
+                {building.upgradeCost.marble > 0 && (
+                  <IkariamText
+                    variant="caption"
+                    color={
+                      currentResources.marble >= building.upgradeCost.marble
+                        ? 'primary'
+                        : 'tertiary'
+                    }
+                  >
+                    ⚪ {formatNumber(building.upgradeCost.marble)}
+                  </IkariamText>
+                )}
+                {building.upgradeCost.crystal > 0 && (
+                  <IkariamText
+                    variant="caption"
+                    color={
+                      currentResources.crystal >= building.upgradeCost.crystal
+                        ? 'primary'
+                        : 'tertiary'
+                    }
+                  >
+                    💎 {formatNumber(building.upgradeCost.crystal)}
+                  </IkariamText>
+                )}
+                {building.upgradeCost.sulfur > 0 && (
+                  <IkariamText
+                    variant="caption"
+                    color={
+                      currentResources.sulfur >= building.upgradeCost.sulfur
+                        ? 'primary'
+                        : 'tertiary'
+                    }
+                  >
+                    ⚠️ {formatNumber(building.upgradeCost.sulfur)}
+                  </IkariamText>
+                )}
+              </View>
+            </View>
+          )}
+
+          {/* Temps d'upgrade */}
+          {building.upgradeTime && (
+            <View style={styles.upgradeTimeRow}>
+              <IkariamText variant="caption" color="secondary">
+                ⏱️ Temps: {formatTime(building.upgradeTime)}
+              </IkariamText>
+            </View>
+          )}
         </View>
-        <IkariamText variant="caption" color="secondary">
-          Niveau {building.level}
-        </IkariamText>
+
+        <IkariamButton
+          title="⬆"
+          onPress={onUpgrade}
+          variant={hasEnoughResources ? 'success' : 'warning'}
+          size="sm"
+          style={styles.upgradeButton}
+        />
       </View>
-      <IkariamButton
-        title="⬆ Améliorer"
-        onPress={onUpgrade}
-        variant="success"
-        size="sm"
-        style={styles.upgradeButton}
-      />
     </View>
   );
 };
@@ -507,34 +691,77 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: IkariamTheme.spacing.base,
   },
+  buildingHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: IkariamTheme.spacing.md,
+  },
+  sortButtons: {
+    flexDirection: 'row',
+    gap: IkariamTheme.spacing.xs,
+  },
+  sortButton: {
+    paddingHorizontal: IkariamTheme.spacing.sm,
+    paddingVertical: IkariamTheme.spacing.xs,
+    borderRadius: IkariamTheme.borderRadius.sm,
+    backgroundColor: IkariamTheme.colors.parchment.dark,
+    borderWidth: 1,
+    borderColor: IkariamTheme.colors.border.light,
+  },
+  sortButtonActive: {
+    backgroundColor: IkariamTheme.colors.wood.base,
+    borderColor: IkariamTheme.colors.wood.dark,
+  },
+  buildingItemContainer: {
+    marginBottom: IkariamTheme.spacing.md,
+  },
   buildingItem: {
     backgroundColor: IkariamTheme.colors.parchment.base,
     padding: IkariamTheme.spacing.md,
     borderRadius: IkariamTheme.borderRadius.base,
     borderWidth: 1,
     borderColor: IkariamTheme.colors.border.base,
-    marginBottom: IkariamTheme.spacing.md,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     ...IkariamTheme.shadows.sm,
   },
-  buildingInfo: {
+  buildingMainInfo: {
     flex: 1,
     marginRight: IkariamTheme.spacing.md,
   },
-  buildingHeader: {
+  buildingHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: IkariamTheme.spacing.xs,
+    gap: IkariamTheme.spacing.sm,
   },
-  buildingIcon: {
-    marginRight: IkariamTheme.spacing.sm,
+  buildingIconText: {
+    fontSize: 20,
   },
-  buildingName: {
+  buildingNameText: {
     flex: 1,
   },
+  upgradeCostRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: IkariamTheme.spacing.xs,
+    flexWrap: 'wrap',
+  },
+  costLabel: {
+    marginRight: IkariamTheme.spacing.sm,
+  },
+  costList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: IkariamTheme.spacing.sm,
+  },
+  upgradeTimeRow: {
+    marginTop: IkariamTheme.spacing.xs,
+  },
   upgradeButton: {
-    minWidth: 100,
+    minWidth: 50,
+    paddingHorizontal: IkariamTheme.spacing.md,
   },
 });
