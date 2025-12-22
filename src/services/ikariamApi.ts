@@ -163,15 +163,18 @@ export class IkariamApi {
       const matchCount = Object.values(patterns).filter(Boolean).length;
       const hasGameData = matchCount >= 2;
 
+      const isValid = hasGameData && !isLoginPage;
+
       console.log('Session validation result:', {
         hasGameData,
         matchCount,
         isLoginPage,
         responseLength: html.length,
         statusCode: response.status,
+        VALID: isValid,
       });
 
-      return hasGameData && !isLoginPage;
+      return isValid;
     } catch (error) {
       console.error('Session validation error:', error);
       return false;
