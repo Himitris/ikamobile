@@ -438,28 +438,9 @@ export class IkariamApi {
         console.warn('⚠️ getCityDetails: Ressources non trouvées - affichage à 0');
       }
 
-      // Parse les constructions en cours
-      console.log('📍 getCityDetails: Début parsing constructions...');
-      const constructionQueue = [];
-
-      try {
-        const constructionMatches = html.matchAll(
-          /buildingUpgrade[^}]+position[^:]*:([^,]+)[^}]+buildingId[^:]*:([^,]+)[^}]+upgradeCountDown[^:]*:([^,]+)/g
-        );
-
-        for (const match of constructionMatches) {
-          const countdown = parseNumber(match[3]?.trim());
-          constructionQueue.push({
-            buildingId: match[2]?.trim() || '',
-            buildingName: '',
-            targetLevel: 0,
-            completionTime: Date.now() + countdown * 1000,
-            currentLevel: 0,
-          });
-        }
-      } catch (constructionError: any) {
-        console.warn('⚠️ Erreur parsing constructions:', constructionError.message);
-      }
+      // Parse les constructions en cours (DÉSACTIVÉ temporairement - cause freeze)
+      console.log('📍 getCityDetails: Skip constructions (matchAll cause freeze)');
+      const constructionQueue: any[] = [];
 
       console.log('📍 getCityDetails: Constructions en cours:', constructionQueue.length);
       console.log('📍 getCityDetails: Prêt à retourner les données');
