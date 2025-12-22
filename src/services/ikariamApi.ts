@@ -456,6 +456,9 @@ export class IkariamApi {
       }
 
       console.log('📍 getCityDetails: Constructions en cours:', constructionQueue.length);
+      console.log('📍 getCityDetails: Prêt à retourner les données');
+      console.log('📍 getCityDetails: cityName =', cityName);
+      console.log('📍 getCityDetails: resources =', resources);
 
       const result = {
         success: true,
@@ -470,9 +473,11 @@ export class IkariamApi {
         },
       };
 
-      console.log('✅ getCityDetails: Retour:', JSON.stringify(result, null, 2).substring(0, 500));
+      console.log('✅ getCityDetails: SUCCESS - Retour des données');
       return result;
     } catch (error: any) {
+      console.error('❌ getCityDetails: EXCEPTION:', error);
+      console.error('❌ getCityDetails: Stack:', error.stack);
       return {
         success: false,
         error: error.message || 'Erreur lors de la récupération des détails de la ville',
