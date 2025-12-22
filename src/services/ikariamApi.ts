@@ -394,14 +394,25 @@ export class IkariamApi {
       };
 
       // Essaye plusieurs patterns pour les ressources
-      const patterns = ['currentResources', 'resources', 'resourcesData'];
+      const patterns = ['currentResources'];
       let resourcesData = null;
 
       for (const pattern of patterns) {
-        resourcesData = extractJsonFromHtml(html, pattern);
-        if (resourcesData && (resourcesData.wood || resourcesData.wine)) {
-          console.log(`📍 getCityDetails: Ressources trouvées dans "${pattern}"`);
-          break;
+        const data = extractJsonFromHtml(html, pattern);
+        if (data) {
+          console.log(`📍 getCityDetails: "${pattern}" trouvé, contenu:`, data);
+          console.log(`📍 getCityDetails: Clés disponibles:`, Object.keys(data));
+
+          // Vérifie si c'est les ressources (a des clés comme wood, wine, etc)
+          const hasResourceKeys = Object.keys(data).some(key =>
+            ['wood', 'wine', 'marble', 'crystal', 'sulfur', 'resource', 'production'].includes(key)
+          );
+
+          if (hasResourceKeys) {
+            resourcesData = data;
+            console.log(`✅ Ressources identifiées dans "${pattern}"`);
+            break;
+          }
         }
       }
 
