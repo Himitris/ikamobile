@@ -21,18 +21,29 @@ export const CityDetailScreen: React.FC<CityDetailScreenProps> = ({ cityId, onBa
   const [city, setCity] = useState<City | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const loadCityDetails = async () => {
     try {
+      console.log('🏛️ CityDetailScreen: Chargement détails ville', cityId);
       const result = await ikariamApi.getCityDetails(cityId);
 
       if (result.success && result.data) {
+        console.log('🏛️ CityDetailScreen: Détails chargés:', result.data.name);
+        console.log('🏛️ CityDetailScreen: Ressources:', result.data.resources);
         setCity(result.data);
+        setError(null);
       } else {
-        Alert.alert('Erreur', result.error || 'Impossible de charger les détails de la ville');
+        const errorMsg = result.error || 'Impossible de charger les détails de la ville';
+        console.error('🏛️ CityDetailScreen: Erreur:', errorMsg);
+        setError(errorMsg);
+        Alert.alert('Erreur', errorMsg);
       }
     } catch (error: any) {
-      Alert.alert('Erreur', error.message || 'Une erreur est survenue');
+      const errorMsg = error.message || 'Une erreur est survenue';
+      console.error('🏛️ CityDetailScreen: Exception:', errorMsg);
+      setError(errorMsg);
+      Alert.alert('Erreur', errorMsg);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -97,6 +108,17 @@ export const CityDetailScreen: React.FC<CityDetailScreenProps> = ({ cityId, onBa
         style={styles.content}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
       >
+        {/* Avertissement si toutes les ressources sont à 0 */}
+        {city.resources &&
+          Object.values(city.resources).every((val) => val === 0 || val === undefined) && (
+            <View style={styles.warningBanner}>
+              <Text style={styles.warningText}>
+                ⚠️ Les ressources n'ont pas pu être chargées. Consultez les logs de la console
+                pour plus de détails.
+              </Text>
+            </View>
+          )}
+
         {/* Ressources */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Ressources</Text>
@@ -291,6 +313,20 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
+  },
+  warningBanner: {
+    backgroundColor: '#fff3cd',
+    padding: 15,
+    margin: 15,
+    marginBottom: 0,
+    borderRadius: 10,
+    borderLeftWidth: 4,
+    borderLeftColor: '#ffc107',
+  },
+  warningText: {
+    color: '#856404',
+    fontSize: 14,
+    lineHeight: 20,
   },
   section: {
     backgroundColor: '#fff',

@@ -379,6 +379,15 @@ export class IkariamApi {
 
       const resourcesData = extractJsonFromHtml(html, 'updateBackgroundData');
       if (resourcesData) {
+        console.log('📍 getCityDetails: Structure JSON ressources:', Object.keys(resourcesData).slice(0, 10));
+        console.log('📍 getCityDetails: Exemple valeurs:', {
+          wood: resourcesData.wood,
+          wine: resourcesData.wine,
+          marble: resourcesData.marble,
+          currentResources: resourcesData.currentResources,
+          backgroundData: resourcesData.backgroundData,
+        });
+
         // Fonction helper pour parser les nombres de manière sûre
         const parseNumber = (val: any): number => {
           if (typeof val === 'number') return Math.floor(val);
@@ -386,14 +395,17 @@ export class IkariamApi {
           return isNaN(num) ? 0 : num;
         };
 
+        // Les ressources peuvent être dans différents champs
+        const resourcesSource = resourcesData.currentResources || resourcesData.backgroundData || resourcesData;
+
         resources = {
-          wood: parseNumber(resourcesData.wood),
-          wine: parseNumber(resourcesData.wine),
-          marble: parseNumber(resourcesData.marble),
-          crystal: parseNumber(resourcesData.crystal),
-          sulfur: parseNumber(resourcesData.sulfur),
-          gold: parseNumber(resourcesData.gold),
-          citizens: parseNumber(resourcesData.citizens),
+          wood: parseNumber(resourcesSource.wood),
+          wine: parseNumber(resourcesSource.wine),
+          marble: parseNumber(resourcesSource.marble),
+          crystal: parseNumber(resourcesSource.crystal),
+          sulfur: parseNumber(resourcesSource.sulfur),
+          gold: parseNumber(resourcesSource.gold),
+          citizens: parseNumber(resourcesSource.citizens),
         };
         console.log('📍 getCityDetails: Ressources parsées:', resources);
       } else {

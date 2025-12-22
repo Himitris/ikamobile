@@ -25,18 +25,33 @@ export const CitiesListScreen: React.FC<CitiesListScreenProps> = ({
   const [cities, setCities] = useState<City[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const loadCities = async () => {
     try {
+      console.log('🏙️ CitiesListScreen: Chargement des villes...');
       const result = await ikariamApi.getCities();
 
       if (result.success && result.data) {
+        console.log('🏙️ CitiesListScreen: Villes chargées:', result.data.length);
         setCities(result.data);
+        setError(null);
       } else {
-        Alert.alert('Erreur', result.error || 'Impossible de charger les villes');
+        const errorMsg = result.error || 'Impossible de charger les villes';
+        console.error('🏙️ CitiesListScreen: Erreur:', errorMsg);
+        setError(errorMsg);
+        // N'affiche l'alert que si on a 0 villes (sinon on garde l'ancien state)
+        if (cities.length === 0) {
+          Alert.alert('Erreur', errorMsg);
+        }
       }
     } catch (error: any) {
-      Alert.alert('Erreur', error.message || 'Une erreur est survenue');
+      const errorMsg = error.message || 'Une erreur est survenue';
+      console.error('🏙️ CitiesListScreen: Exception:', errorMsg);
+      setError(errorMsg);
+      if (cities.length === 0) {
+        Alert.alert('Erreur', errorMsg);
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -93,15 +108,29 @@ export const CitiesListScreen: React.FC<CitiesListScreenProps> = ({
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Mes Villes</Text>
+        <Text style={styles.title}>Mes Villes ({cities.length})</Text>
         <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
           <Text style={styles.logoutButtonText}>Déconnexion</Text>
         </TouchableOpacity>
       </View>
 
+      {error && (
+        <View style={styles.errorBanner}>
+          <Text style={styles.errorText}>⚠️ {error}</Text>
+          <TouchableOpacity onPress={() => setError(null)} style={styles.dismissButton}>
+            <Text style={styles.dismissText}>✕</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {cities.length === 0 ? (
         <View style={styles.centerContainer}>
-          <Text style={styles.emptyText}>Aucune ville trouvée</Text>
+          <Text style={styles.emptyText}>
+            {error ? 'Erreur de chargement' : 'Aucune ville trouvée'}
+          </Text>
+          <TouchableOpacity style={styles.retryButton} onPress={loadCities}>
+            <Text style={styles.retryButtonText}>Réessayer</Text>
+          </TouchableOpacity>
         </View>
       ) : (
         <FlatList
@@ -200,5 +229,39 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 16,
     color: '#7f8c8d',
+    marginBottom: 20,
+  },
+  errorBanner: {
+    backgroundColor: '#ffe6e6',
+    padding: 15,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderBottomWidth: 1,
+    borderBottomColor: '#ffcccc',
+  },
+  errorText: {
+    color: '#c0392b',
+    fontSize: 14,
+    flex: 1,
+  },
+  dismissButton: {
+    padding: 5,
+  },
+  dismissText: {
+    color: '#c0392b',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  retryButton: {
+    backgroundColor: '#3498db',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 5,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
