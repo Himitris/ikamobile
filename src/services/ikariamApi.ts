@@ -417,16 +417,18 @@ export class IkariamApi {
       }
 
       if (resourcesData) {
+        // Mapping des IDs de ressources Ikariam vers les noms
+        // 1 = wood, 2 = wine, 3 = marble, 4 = crystal, 5 = sulfur
         resources = {
-          wood: parseNumber(resourcesData.wood),
-          wine: parseNumber(resourcesData.wine),
-          marble: parseNumber(resourcesData.marble),
-          crystal: parseNumber(resourcesData.crystal),
-          sulfur: parseNumber(resourcesData.sulfur),
-          gold: parseNumber(resourcesData.gold),
+          wood: parseNumber(resourcesData['1'] || resourcesData.wood),
+          wine: parseNumber(resourcesData['2'] || resourcesData.wine),
+          marble: parseNumber(resourcesData['3'] || resourcesData.marble),
+          crystal: parseNumber(resourcesData['4'] || resourcesData.crystal),
+          sulfur: parseNumber(resourcesData['5'] || resourcesData.sulfur),
+          gold: parseNumber(resourcesData.resource || resourcesData.gold),
           citizens: parseNumber(resourcesData.citizens),
         };
-        console.log('📍 getCityDetails: Ressources parsées:', resources);
+        console.log('✅ getCityDetails: Ressources parsées:', resources);
       } else {
         console.warn('⚠️ getCityDetails: Ressources non trouvées - affichage à 0');
       }
