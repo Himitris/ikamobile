@@ -368,7 +368,23 @@ export class IkariamApi {
       const response = await this.request(`/index.php?view=city&cityId=${cityId}`);
       const html = response.data;
 
-      // Parse les ressources en utilisant extractJsonFromHtml
+      // Fonction helper pour parser les nombres de manière sûre
+      const parseNumber = (val: any): number => {
+        if (typeof val === 'number') return Math.floor(val);
+        const num = parseInt(String(val || '0'), 10);
+        return isNaN(num) ? 0 : num;
+      };
+
+      // Parse les infos de la ville depuis updateBackgroundData
+      const cityInfo = extractJsonFromHtml(html, 'updateBackgroundData');
+      const cityName = cityInfo?.name || cityId;
+      const islandId = cityInfo?.islandId || '';
+      const x = parseNumber(cityInfo?.islandXCoord);
+      const y = parseNumber(cityInfo?.islandYCoord);
+
+      console.log('📍 getCityDetails: Infos ville:', { cityName, islandId, x, y });
+
+      // Parse les ressources depuis currentResources ou autres patterns
       let resources: Resources = {
         wood: 0,
         wine: 0,
@@ -377,39 +393,31 @@ export class IkariamApi {
         sulfur: 0,
       };
 
-      const resourcesData = extractJsonFromHtml(html, 'updateBackgroundData');
+      // Essaye plusieurs patterns pour les ressources
+      const patterns = ['currentResources', 'resources', 'resourcesData'];
+      let resourcesData = null;
+
+      for (const pattern of patterns) {
+        resourcesData = extractJsonFromHtml(html, pattern);
+        if (resourcesData && (resourcesData.wood || resourcesData.wine)) {
+          console.log(`📍 getCityDetails: Ressources trouvées dans "${pattern}"`);
+          break;
+        }
+      }
+
       if (resourcesData) {
-        console.log('📍 getCityDetails: Structure JSON ressources:', Object.keys(resourcesData).slice(0, 10));
-        console.log('📍 getCityDetails: Exemple valeurs:', {
-          wood: resourcesData.wood,
-          wine: resourcesData.wine,
-          marble: resourcesData.marble,
-          currentResources: resourcesData.currentResources,
-          backgroundData: resourcesData.backgroundData,
-        });
-
-        // Fonction helper pour parser les nombres de manière sûre
-        const parseNumber = (val: any): number => {
-          if (typeof val === 'number') return Math.floor(val);
-          const num = parseInt(String(val || '0'), 10);
-          return isNaN(num) ? 0 : num;
-        };
-
-        // Les ressources peuvent être dans différents champs
-        const resourcesSource = resourcesData.currentResources || resourcesData.backgroundData || resourcesData;
-
         resources = {
-          wood: parseNumber(resourcesSource.wood),
-          wine: parseNumber(resourcesSource.wine),
-          marble: parseNumber(resourcesSource.marble),
-          crystal: parseNumber(resourcesSource.crystal),
-          sulfur: parseNumber(resourcesSource.sulfur),
-          gold: parseNumber(resourcesSource.gold),
-          citizens: parseNumber(resourcesSource.citizens),
+          wood: parseNumber(resourcesData.wood),
+          wine: parseNumber(resourcesData.wine),
+          marble: parseNumber(resourcesData.marble),
+          crystal: parseNumber(resourcesData.crystal),
+          sulfur: parseNumber(resourcesData.sulfur),
+          gold: parseNumber(resourcesData.gold),
+          citizens: parseNumber(resourcesData.citizens),
         };
         console.log('📍 getCityDetails: Ressources parsées:', resources);
       } else {
-        console.warn('📍 getCityDetails: Impossible de parser les ressources');
+        console.warn('⚠️ getCityDetails: Ressources non trouvées - affichage à 0');
       }
 
       // Parse les constructions en cours
@@ -417,13 +425,6 @@ export class IkariamApi {
         /buildingUpgrade[^}]+position[^:]*:([^,]+)[^}]+buildingId[^:]*:([^,]+)[^}]+upgradeCountDown[^:]*:([^,]+)/g
       );
       const constructionQueue = [];
-
-      // Fonction helper pour parser les nombres de manière sûre
-      const parseNumber = (val: any): number => {
-        if (typeof val === 'number') return Math.floor(val);
-        const num = parseInt(String(val || '0'), 10);
-        return isNaN(num) ? 0 : num;
-      };
 
       for (const match of constructionMatches) {
         const countdown = parseNumber(match[3]?.trim());
@@ -437,21 +438,16 @@ export class IkariamApi {
       }
 
       console.log('📍 getCityDetails: Constructions en cours:', constructionQueue.length);
-
-      // Parse le nom de la ville
-      const nameMatch = html.match(/cityName[^>]*>([^<]+)</);
-      const cityName = nameMatch ? nameMatch[1].trim() : 'Ville';
-
-      console.log('📍 getCityDetails: Nom de ville:', cityName);
+      console.log('✅ getCityDetails: Retour des données');
 
       return {
         success: true,
         data: {
           id: cityId,
           name: cityName,
-          islandId: '',
-          x: 0,
-          y: 0,
+          islandId,
+          x,
+          y,
           resources,
           constructionQueue,
         },
