@@ -12,12 +12,19 @@ export class IkariamApi {
 
   constructor() {
     this.axiosInstance = axios.create({
-      timeout: 10000,
+      timeout: 15000,
+      withCredentials: true,
       headers: {
         'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
       },
     });
   }
@@ -52,7 +59,13 @@ export class IkariamApi {
       this.axiosInstance.defaults.baseURL = `https://${server}.ikariam.gameforge.com`;
       this.axiosInstance.defaults.headers.common['Cookie'] = parsedCookie;
 
-      console.log('Attempting session validation with server:', server);
+      console.log('Session initialization:', {
+        server,
+        baseURL: this.axiosInstance.defaults.baseURL,
+        cookieLength: parsedCookie.length,
+        cookiePreview: parsedCookie.substring(0, 100) + '...',
+        hasPHPSESSID: parsedCookie.includes('PHPSESSID'),
+      });
 
       // Vérifie que la session est valide en récupérant les données du joueur
       const isValid = await this.validateSession();
@@ -85,21 +98,43 @@ export class IkariamApi {
       const response = await this.axiosInstance.get('/index.php?view=city');
       const html = response.data;
 
+      // Debug: affiche un extrait de la réponse
+      console.log('Response preview (first 500 chars):', html.substring(0, 500));
+      console.log('Response preview (last 500 chars):', html.substring(html.length - 500));
+
       // Vérifie que la réponse contient des données de ville
-      // Si on est redirigé vers la page de login, la session est invalide
-      const hasGameData = html.includes('cityId') ||
-                         html.includes('relatedCityData') ||
-                         html.includes('updateBackgroundData');
+      // Patterns de détection plus larges
+      const patterns = {
+        cityId: html.includes('cityId'),
+        relatedCityData: html.includes('relatedCityData'),
+        updateBackgroundData: html.includes('updateBackgroundData'),
+        cityView: html.includes('view=city'),
+        buildingGround: html.includes('buildingGround'),
+        ikariam: html.includes('ikariam'),
+        cityName: html.includes('cityName'),
+        gameData: html.includes('gameData'),
+        ajaxToken: html.includes('ajaxRequestUrl'),
+      };
 
       const isLoginPage = html.includes('loginForm') ||
-                         html.includes('login') && html.includes('password');
+                         html.includes('login">') ||
+                         html.includes('password">') ||
+                         html.includes('login_redirect');
 
-      // Debug logging
-      console.log('Session validation:', {
+      // Debug logging détaillé
+      console.log('Session validation patterns:', patterns);
+      console.log('Is login page:', isLoginPage);
+
+      // Considère la session valide si au moins 2 patterns sont trouvés
+      const matchCount = Object.values(patterns).filter(Boolean).length;
+      const hasGameData = matchCount >= 2;
+
+      console.log('Session validation result:', {
         hasGameData,
+        matchCount,
         isLoginPage,
         responseLength: html.length,
-        statusCode: response.status
+        statusCode: response.status,
       });
 
       return hasGameData && !isLoginPage;
