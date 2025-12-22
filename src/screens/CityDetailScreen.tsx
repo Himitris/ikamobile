@@ -9,7 +9,8 @@ import {
   RefreshControl,
 } from 'react-native';
 import { ikariamApi } from '../services/ikariamApi';
-import type { City, Construction } from '../types';
+import type { City, Construction, Building } from '../types';
+import { BUILDING_NAMES } from '../constants/game';
 import { IkariamText, IkariamCard, IkariamButton, IkariamBadge } from '@/components/ikariam';
 import { IkariamTheme } from '@/constants/ikariamTheme';
 
@@ -54,6 +55,32 @@ export const CityDetailScreen: React.FC<CityDetailScreenProps> = ({ cityId, onBa
   const handleRefresh = () => {
     setRefreshing(true);
     loadCityDetails();
+  };
+
+  const handleBuildingUpgrade = async (building: Building) => {
+    Alert.alert(
+      `Améliorer ${building.name}`,
+      `Voulez-vous améliorer ${building.name} au niveau ${building.level + 1} ?`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Améliorer',
+          onPress: async () => {
+            try {
+              const result = await ikariamApi.startConstruction(cityId, building.position.toString());
+              if (result.success) {
+                Alert.alert('Succès', 'Construction lancée !');
+                loadCityDetails(); // Recharge les données
+              } else {
+                Alert.alert('Erreur', result.error || 'Impossible de lancer la construction');
+              }
+            } catch (error: any) {
+              Alert.alert('Erreur', error.message || 'Une erreur est survenue');
+            }
+          },
+        },
+      ]
+    );
   };
 
   const formatNumber = (num: number): string => {
@@ -232,12 +259,24 @@ export const CityDetailScreen: React.FC<CityDetailScreenProps> = ({ cityId, onBa
             <IkariamText variant="caption" color="secondary" style={styles.emptyText}>
               Aucune construction en cours
             </IkariamText>
-            <IkariamButton
-              title="Lancer une construction"
-              onPress={() => {}}
-              variant="success"
-              size="md"
-            />
+          </IkariamCard>
+        )}
+
+        {/* Bâtiments */}
+        {city.buildings && city.buildings.length > 0 && (
+          <IkariamCard style={styles.section}>
+            <IkariamText variant="subheading" style={styles.sectionTitle}>
+              Bâtiments ({city.buildings.length})
+            </IkariamText>
+            {city.buildings
+              .sort((a, b) => b.level - a.level)
+              .map((building) => (
+                <BuildingItem
+                  key={building.id}
+                  building={building}
+                  onUpgrade={() => handleBuildingUpgrade(building)}
+                />
+              ))}
           </IkariamCard>
         )}
       </ScrollView>
@@ -295,6 +334,64 @@ const ConstructionItem: React.FC<{ construction: Construction }> = ({ constructi
         </IkariamText>
       </View>
       <IkariamBadge label={timeRemaining} variant="info" size="sm" />
+    </View>
+  );
+};
+
+const BuildingItem: React.FC<{
+  building: Building;
+  onUpgrade: () => void;
+}> = ({ building, onUpgrade }) => {
+  // Récupère le nom localisé du bâtiment
+  const buildingName = BUILDING_NAMES[building.type] || building.name || 'Bâtiment inconnu';
+
+  // Icônes pour différents types de bâtiments
+  const getBuildingIcon = (type: string): string => {
+    const icons: Record<string, string> = {
+      townhall: '🏛️',
+      academy: '📚',
+      warehouse: '📦',
+      palace: '👑',
+      museum: '🏛️',
+      port: '⚓',
+      shipyard: '🚢',
+      barracks: '⚔️',
+      wall: '🏰',
+      tavern: '🍺',
+      tradingpost: '🏪',
+      workshop: '🔨',
+      hideout: '🗡️',
+      sawmill: '🪵',
+      vineyard: '🍷',
+      quarry: '⚪',
+      crystalmine: '💎',
+      sulfurpit: '⚠️',
+    };
+    return icons[type.toLowerCase()] || '🏗️';
+  };
+
+  return (
+    <View style={styles.buildingItem}>
+      <View style={styles.buildingInfo}>
+        <View style={styles.buildingHeader}>
+          <IkariamText variant="body" style={styles.buildingIcon}>
+            {getBuildingIcon(building.type)}
+          </IkariamText>
+          <IkariamText variant="body" weight="semibold" style={styles.buildingName}>
+            {buildingName}
+          </IkariamText>
+        </View>
+        <IkariamText variant="caption" color="secondary">
+          Niveau {building.level}
+        </IkariamText>
+      </View>
+      <IkariamButton
+        title="⬆ Améliorer"
+        onPress={onUpgrade}
+        variant="success"
+        size="sm"
+        style={styles.upgradeButton}
+      />
     </View>
   );
 };
@@ -409,5 +506,35 @@ const styles = StyleSheet.create({
   emptyText: {
     textAlign: 'center',
     marginBottom: IkariamTheme.spacing.base,
+  },
+  buildingItem: {
+    backgroundColor: IkariamTheme.colors.parchment.base,
+    padding: IkariamTheme.spacing.md,
+    borderRadius: IkariamTheme.borderRadius.base,
+    borderWidth: 1,
+    borderColor: IkariamTheme.colors.border.base,
+    marginBottom: IkariamTheme.spacing.md,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    ...IkariamTheme.shadows.sm,
+  },
+  buildingInfo: {
+    flex: 1,
+    marginRight: IkariamTheme.spacing.md,
+  },
+  buildingHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: IkariamTheme.spacing.xs,
+  },
+  buildingIcon: {
+    marginRight: IkariamTheme.spacing.sm,
+  },
+  buildingName: {
+    flex: 1,
+  },
+  upgradeButton: {
+    minWidth: 100,
   },
 });

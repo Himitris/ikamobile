@@ -71,7 +71,7 @@ export default function App() {
   }
 
   if (currentScreen === 'cityDetail' && selectedCityId) {
-    return <CityDetailScreen cityId={selectedCityId} onBack={handleBackToCities} />;
+    return <CityDetailScreen key={selectedCityId} cityId={selectedCityId} onBack={handleBackToCities} />;
   }
 
   return null;

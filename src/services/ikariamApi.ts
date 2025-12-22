@@ -1,4 +1,4 @@
-import type { IkariamSession, City, Resources, ApiResponse } from '../types';
+import type { IkariamSession, City, Resources, Building, ApiResponse } from '../types';
 import { parseCookies, validateCookies } from '../utils/cookieParser';
 import { PROXY_URL, USE_PROXY } from '../config/api';
 
@@ -438,6 +438,54 @@ export class IkariamApi {
         console.warn('⚠️ getCityDetails: Ressources non trouvées - affichage à 0');
       }
 
+      // Parse les bâtiments de la ville
+      let buildings: Building[] = [];
+      try {
+        // Cherche buildingGround dans le HTML pour les bâtiments
+        const buildingGroundMatch = html.match(/id="buildingGround"[\s\S]*?<\/div>/);
+        if (buildingGroundMatch) {
+          const buildingGroundHtml = buildingGroundMatch[0];
+
+          // Parse chaque position de bâtiment (0-17)
+          for (let position = 0; position <= 17; position++) {
+            const positionRegex = new RegExp(
+              `position${position}[^>]*class="([^"]*)"[^>]*>([\\s\\S]*?)<\\/div>`
+            );
+            const positionMatch = buildingGroundHtml.match(positionRegex);
+
+            if (positionMatch) {
+              const classes = positionMatch[1];
+              const content = positionMatch[2];
+
+              // Extrait le type de bâtiment depuis la classe
+              const buildingTypeMatch = classes.match(/building(\w+)/);
+              const buildingType = buildingTypeMatch ? buildingTypeMatch[1].toLowerCase() : '';
+
+              // Extrait le niveau
+              const levelMatch = content.match(/buildingLevel(\d+)/);
+              const level = levelMatch ? parseInt(levelMatch[1]) : 0;
+
+              // Extrait le nom du bâtiment
+              const nameMatch = content.match(/buildinginfo[^>]*title="([^"]+)"/);
+              const name = nameMatch ? nameMatch[1].replace(/&nbsp;/g, ' ').trim() : '';
+
+              if (buildingType && level > 0) {
+                buildings.push({
+                  id: `${position}`,
+                  name: name || buildingType,
+                  level,
+                  position,
+                  type: buildingType as any,
+                });
+              }
+            }
+          }
+          console.log('📍 getCityDetails: Bâtiments trouvés:', buildings.length);
+        }
+      } catch (error) {
+        console.error('⚠️ getCityDetails: Erreur parsing bâtiments:', error);
+      }
+
       // Parse les constructions en cours (DÉSACTIVÉ temporairement - cause freeze)
       console.log('📍 getCityDetails: Skip constructions (matchAll cause freeze)');
       const constructionQueue: any[] = [];
@@ -456,6 +504,7 @@ export class IkariamApi {
           x,
           y,
           resources,
+          buildings,
           constructionQueue,
         },
       };
