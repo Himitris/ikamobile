@@ -26,6 +26,14 @@ export class IkariamApi {
    */
   async initSession(cookie: string, server: string): Promise<ApiResponse<IkariamSession>> {
     try {
+      // Vérifie que le cookie contient au moins PHPSESSID
+      if (!cookie.includes('PHPSESSID')) {
+        return {
+          success: false,
+          error: 'Le cookie doit contenir PHPSESSID. Assurez-vous de copier TOUS les cookies depuis votre navigateur.',
+        };
+      }
+
       this.session = { cookie, server };
 
       // Configure l'instance axios avec le cookie
@@ -38,7 +46,7 @@ export class IkariamApi {
       if (!isValid) {
         return {
           success: false,
-          error: 'Cookie de session invalide ou expiré',
+          error: 'Cookie de session invalide ou expiré. Reconnectez-vous à Ikariam et copiez à nouveau vos cookies.',
         };
       }
 
@@ -47,6 +55,7 @@ export class IkariamApi {
         data: this.session,
       };
     } catch (error: any) {
+      console.error('Init session error:', error);
       return {
         success: false,
         error: error.message || 'Erreur lors de l\'initialisation de la session',
@@ -60,11 +69,28 @@ export class IkariamApi {
   private async validateSession(): Promise<boolean> {
     try {
       const response = await this.axiosInstance.get('/index.php?view=city');
+      const html = response.data;
 
       // Vérifie que la réponse contient des données de ville
       // Si on est redirigé vers la page de login, la session est invalide
-      return response.data.includes('cityId') || response.data.includes('relatedCityData');
-    } catch {
+      const hasGameData = html.includes('cityId') ||
+                         html.includes('relatedCityData') ||
+                         html.includes('updateBackgroundData');
+
+      const isLoginPage = html.includes('loginForm') ||
+                         html.includes('login') && html.includes('password');
+
+      // Debug logging
+      console.log('Session validation:', {
+        hasGameData,
+        isLoginPage,
+        responseLength: html.length,
+        statusCode: response.status
+      });
+
+      return hasGameData && !isLoginPage;
+    } catch (error) {
+      console.error('Session validation error:', error);
       return false;
     }
   }

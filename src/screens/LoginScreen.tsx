@@ -68,10 +68,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
           <Text style={styles.instructionsText}>
             1. Ouvrez Ikariam dans votre navigateur{'\n'}
             2. Connectez-vous à votre compte{'\n'}
-            3. Ouvrez les outils de développement (F12){'\n'}
-            4. Allez dans l'onglet "Application" ou "Storage"{'\n'}
-            5. Cliquez sur "Cookies" puis sur le site Ikariam{'\n'}
-            6. Copiez tous les cookies (format: name=value; name2=value2)
+            3. Appuyez sur F12 (outils développeur){'\n'}
+            4. Onglet Console, tapez: document.cookie{'\n'}
+            5. Copiez TOUT le résultat{'\n'}
+            {'\n'}
+            ⚠️ IMPORTANT: Le cookie doit contenir PHPSESSID
           </Text>
         </View>
 
