@@ -252,12 +252,36 @@ export class IkariamApi {
 
                 for (const cityId in citiesData) {
                   const cityData = citiesData[cityId];
+
+                  // Filtre: ne garde que les vraies villes
+                  const isCityKey = cityId.startsWith('city_');
+                  const isCityObject = typeof cityData === 'object' && cityData !== null &&
+                                       ('id' in cityData || 'name' in cityData);
+
+                  if (!isCityKey && !isCityObject) {
+                    console.log('📍 getCities (fallback): Ignore métadonnée:', cityId);
+                    continue;
+                  }
+
+                  // Parse les coordonnées
+                  let x = 0, y = 0;
+                  if (typeof cityData.coords === 'string') {
+                    const coordMatch = cityData.coords.match(/\[(\d+):(\d+)\]/);
+                    if (coordMatch) {
+                      x = parseInt(coordMatch[1]);
+                      y = parseInt(coordMatch[2]);
+                    }
+                  } else if (cityData.coords && typeof cityData.coords === 'object') {
+                    x = cityData.coords.x || 0;
+                    y = cityData.coords.y || 0;
+                  }
+
                   cities.push({
                     id: cityId,
                     name: cityData.name || 'Ville sans nom',
                     islandId: cityData.islandId || '',
-                    x: cityData.coords?.x || 0,
-                    y: cityData.coords?.y || 0,
+                    x,
+                    y,
                     resources: {
                       wood: 0,
                       wine: 0,
@@ -341,15 +365,41 @@ export class IkariamApi {
 
       const cities: City[] = [];
 
-      // Parse chaque ville
+      // Parse chaque ville (filtre les métadonnées comme "additionalInfo", "selectedCity")
       for (const cityId in citiesData) {
         const cityData = citiesData[cityId];
+
+        // Filtre: ne garde que les vraies villes
+        // Les villes ont soit une clé qui commence par "city_", soit un objet avec "id" et "name"
+        const isCityKey = cityId.startsWith('city_');
+        const isCityObject = typeof cityData === 'object' && cityData !== null &&
+                             ('id' in cityData || 'name' in cityData);
+
+        if (!isCityKey && !isCityObject) {
+          console.log('📍 getCities: Ignore métadonnée:', cityId);
+          continue;
+        }
+
+        // Parse les coordonnées (format: "[X:Y] " ou {x: X, y: Y})
+        let x = 0, y = 0;
+        if (typeof cityData.coords === 'string') {
+          // Format: "[46:53] "
+          const coordMatch = cityData.coords.match(/\[(\d+):(\d+)\]/);
+          if (coordMatch) {
+            x = parseInt(coordMatch[1]);
+            y = parseInt(coordMatch[2]);
+          }
+        } else if (cityData.coords && typeof cityData.coords === 'object') {
+          x = cityData.coords.x || 0;
+          y = cityData.coords.y || 0;
+        }
+
         cities.push({
           id: cityId,
           name: cityData.name || 'Ville sans nom',
           islandId: cityData.islandId || '',
-          x: cityData.coords?.x || 0,
-          y: cityData.coords?.y || 0,
+          x,
+          y,
           resources: {
             wood: 0,
             wine: 0,
