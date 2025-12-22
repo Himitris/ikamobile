@@ -1,42 +1,39 @@
-import axios, { AxiosInstance } from 'axios';
-import { wrapper } from 'axios-cookiejar-support';
-import { CookieJar } from 'tough-cookie';
 import type { IkariamSession, City, Resources, ApiResponse } from '../types';
 import { parseCookies, validateCookies } from '../utils/cookieParser';
 
 /**
  * Service API pour interagir avec Ikariam
  * Basé sur le reverse-engineering d'Ikabot
+ * Utilise fetch natif pour une meilleure compatibilité React Native
  */
 export class IkariamApi {
-  private axiosInstance: AxiosInstance;
   private session: IkariamSession | null = null;
-  private cookieJar: CookieJar;
+  private baseURL: string = '';
 
-  constructor() {
-    // Créé un jar de cookies
-    this.cookieJar = new CookieJar();
+  /**
+   * Effectue une requête HTTP avec les cookies
+   */
+  private async request(
+    path: string,
+    options: RequestInit = {}
+  ): Promise<{ data: string; status: number }> {
+    const url = `${this.baseURL}${path}`;
 
-    // Créé l'instance axios avec le wrapper pour le support des cookies
-    this.axiosInstance = wrapper(
-      axios.create({
-        timeout: 15000,
-        jar: this.cookieJar,
-        withCredentials: true,
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-          'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
-          'Accept-Encoding': 'gzip, deflate, br',
-          'Connection': 'keep-alive',
-          'Upgrade-Insecure-Requests': '1',
-          'Sec-Fetch-Dest': 'document',
-          'Sec-Fetch-Mode': 'navigate',
-          'Sec-Fetch-Site': 'none',
-        },
-      })
-    );
+    const response = await fetch(url, {
+      ...options,
+      credentials: 'include',
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Cookie': this.session?.cookie || '',
+        ...options.headers,
+      },
+    });
+
+    const data = await response.text();
+    return { data, status: response.status };
   }
 
   /**
@@ -64,28 +61,14 @@ export class IkariamApi {
       }
 
       this.session = { cookie: parsedCookie, server };
-
-      // Configure l'instance axios
-      const baseURL = `https://${server}.ikariam.gameforge.com`;
-      this.axiosInstance.defaults.baseURL = baseURL;
-
-      // Parse et ajoute les cookies au jar
-      const cookiePairs = parsedCookie.split(';').map((c) => c.trim());
-      for (const pair of cookiePairs) {
-        try {
-          this.cookieJar.setCookieSync(pair, baseURL);
-        } catch (error) {
-          console.warn('Failed to set cookie:', pair, error);
-        }
-      }
+      this.baseURL = `https://${server}.ikariam.gameforge.com`;
 
       console.log('Session initialization:', {
         server,
-        baseURL,
+        baseURL: this.baseURL,
         cookieLength: parsedCookie.length,
         cookiePreview: parsedCookie.substring(0, 100) + '...',
         hasPHPSESSID: parsedCookie.includes('PHPSESSID'),
-        cookiesInJar: this.cookieJar.getCookiesSync(baseURL).length,
       });
 
       // Vérifie que la session est valide en récupérant les données du joueur
@@ -116,7 +99,7 @@ export class IkariamApi {
    */
   private async validateSession(): Promise<boolean> {
     try {
-      const response = await this.axiosInstance.get('/index.php?view=city');
+      const response = await this.request('/index.php?view=city');
       const html = response.data;
 
       // Debug: affiche un extrait de la réponse
@@ -137,10 +120,11 @@ export class IkariamApi {
         ajaxToken: html.includes('ajaxRequestUrl'),
       };
 
-      const isLoginPage = html.includes('loginForm') ||
-                         html.includes('login">') ||
-                         html.includes('password">') ||
-                         html.includes('login_redirect');
+      const isLoginPage =
+        html.includes('loginForm') ||
+        html.includes('login">') ||
+        html.includes('password">') ||
+        html.includes('login_redirect');
 
       // Debug logging détaillé
       console.log('Session validation patterns:', patterns);
@@ -174,11 +158,10 @@ export class IkariamApi {
     }
 
     try {
-      const response = await this.axiosInstance.get('/index.php?view=city');
+      const response = await this.request('/index.php?view=city');
       const html = response.data;
 
       // Parse le JSON contenant les données des villes
-      // Basé sur la logique d'Ikabot (pedirInfo.py)
       const citiesMatch = html.match(/relatedCityData\s*:\s*JSON\.parse\('(.+?)',.*?additionalInfo/s);
 
       if (!citiesMatch) {
@@ -229,7 +212,7 @@ export class IkariamApi {
     }
 
     try {
-      const response = await this.axiosInstance.get(`/index.php?view=city&cityId=${cityId}`);
+      const response = await this.request(`/index.php?view=city&cityId=${cityId}`);
       const html = response.data;
 
       // Parse les ressources
@@ -260,7 +243,9 @@ export class IkariamApi {
       }
 
       // Parse les constructions en cours
-      const constructionMatches = html.matchAll(/buildingUpgrade[^}]+position[^:]*:([^,]+)[^}]+buildingId[^:]*:([^,]+)[^}]+upgradeCountDown[^:]*:([^,]+)/g);
+      const constructionMatches = html.matchAll(
+        /buildingUpgrade[^}]+position[^:]*:([^,]+)[^}]+buildingId[^:]*:([^,]+)[^}]+upgradeCountDown[^:]*:([^,]+)/g
+      );
       const constructionQueue = [];
 
       for (const match of constructionMatches) {
@@ -307,7 +292,7 @@ export class IkariamApi {
 
     try {
       // Récupère d'abord le token CSRF depuis la page de la ville
-      const cityResponse = await this.axiosInstance.get(`/index.php?view=city&cityId=${cityId}`);
+      const cityResponse = await this.request(`/index.php?view=city&cityId=${cityId}`);
       const actionRequestMatch = cityResponse.data.match(/actionRequest[^']*'([^']+)/);
 
       if (!actionRequestMatch) {
@@ -317,15 +302,10 @@ export class IkariamApi {
       const actionRequest = actionRequestMatch[1];
 
       // Envoie la requête de construction
-      const response = await this.axiosInstance.post('/index.php', null, {
-        params: {
-          action: 'CityScreen',
-          function: 'build',
-          cityId,
-          position: buildingId,
-          actionRequest,
-        },
-      });
+      const response = await this.request(
+        `/index.php?action=CityScreen&function=build&cityId=${cityId}&position=${buildingId}&actionRequest=${actionRequest}`,
+        { method: 'POST' }
+      );
 
       if (response.data.includes('error') || response.status !== 200) {
         return { success: false, error: 'Échec de la construction' };
@@ -352,7 +332,6 @@ export class IkariamApi {
    */
   logout(): void {
     this.session = null;
-    this.axiosInstance.defaults.headers.common['Cookie'] = '';
   }
 }
 
