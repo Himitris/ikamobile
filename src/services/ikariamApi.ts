@@ -1,17 +1,18 @@
 import type { IkariamSession, City, Resources, ApiResponse } from '../types';
 import { parseCookies, validateCookies } from '../utils/cookieParser';
+import { PROXY_URL, USE_PROXY } from '../config/api';
 
 /**
  * Service API pour interagir avec Ikariam
  * Basé sur le reverse-engineering d'Ikabot
- * Utilise fetch natif pour une meilleure compatibilité React Native
+ * Utilise un backend proxy pour contourner les limitations React Native
  */
 export class IkariamApi {
   private session: IkariamSession | null = null;
   private baseURL: string = '';
 
   /**
-   * Effectue une requête HTTP avec les cookies
+   * Effectue une requête HTTP via le proxy
    */
   private async request(
     path: string,
@@ -19,21 +20,49 @@ export class IkariamApi {
   ): Promise<{ data: string; status: number }> {
     const url = `${this.baseURL}${path}`;
 
-    const response = await fetch(url, {
-      ...options,
-      credentials: 'include',
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Cookie': this.session?.cookie || '',
-        ...options.headers,
-      },
-    });
+    if (USE_PROXY) {
+      // Utilise le backend proxy
+      const response = await fetch(`${PROXY_URL}/api/proxy`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          url,
+          cookies: this.session?.cookie || '',
+          method: options.method || 'GET',
+          body: options.body,
+        }),
+      });
 
-    const data = await response.text();
-    return { data, status: response.status };
+      const result = await response.json();
+
+      if (!result.success) {
+        throw new Error(result.error || 'Erreur du proxy');
+      }
+
+      return {
+        data: result.data,
+        status: result.status,
+      };
+    } else {
+      // Mode direct (ne fonctionne pas dans React Native)
+      const response = await fetch(url, {
+        ...options,
+        credentials: 'include',
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+          'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
+          'Cookie': this.session?.cookie || '',
+          ...options.headers,
+        },
+      });
+
+      const data = await response.text();
+      return { data, status: response.status };
+    }
   }
 
   /**

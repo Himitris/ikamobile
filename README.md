@@ -1,50 +1,185 @@
-# Welcome to your Expo app 👋
+# Ikariam Mobile App
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Application mobile React Native / Expo pour jouer à Ikariam depuis votre téléphone.
 
-## Get started
+## 📱 Description
 
-1. Install dependencies
+Cette application permet de gérer vos villes Ikariam en déplacement, sans fonctionnalités de bot/automation. Elle reproduit uniquement ce qu'un joueur ferait manuellement.
 
-   ```bash
-   npm install
-   ```
+## ⚙️ Architecture
 
-2. Start the app
+L'application utilise une architecture **client-serveur** :
 
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+```
+┌─────────────────┐          ┌─────────────────┐          ┌─────────────────┐
+│                 │          │                 │          │                 │
+│  App Mobile/Web │  ◄────►  │  Backend Proxy  │  ◄────►  │  Ikariam.com    │
+│  (React Native) │          │  (Node.js)      │          │                 │
+│                 │          │                 │          │                 │
+└─────────────────┘          └─────────────────┘          └─────────────────┘
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+**Pourquoi un backend proxy ?**
+React Native ne permet pas de définir manuellement le header `Cookie` pour des raisons de sécurité. Le backend proxy contourne cette limitation en effectuant les requêtes avec les cookies à la place de l'app.
 
-## Learn more
+## ✨ Fonctionnalités (Phase 1 - MVP)
 
-To learn more about developing your project with Expo, look at the following resources:
+- ✅ Connexion via cookie de session
+- ✅ Vue de la liste de vos villes
+- ✅ Détails d'une ville (ressources, constructions en cours)
+- 🚧 Lancer des constructions (à venir)
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+## 🚀 Installation et Démarrage
 
-## Join the community
+### Méthode rapide (tout-en-un)
 
-Join our community of developers creating universal apps.
+```bash
+./start-dev.sh
+```
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+### Méthode manuelle
+
+**1. Backend (Terminal 1)**
+```bash
+cd backend
+npm install
+npm start
+```
+
+Le backend démarre sur `http://localhost:3001`
+
+**2. Application (Terminal 2)**
+```bash
+npm install
+npx expo start
+```
+
+Puis :
+- Scannez le QR code avec Expo Go (mobile)
+- Appuyez sur `w` pour ouvrir dans le navigateur (web)
+
+## 🔐 Comment obtenir votre cookie de session
+
+### Méthode 1 - Standard
+
+1. Ouvrez Ikariam dans votre navigateur
+2. Connectez-vous à votre compte
+3. Appuyez sur `F12` pour ouvrir les outils développeur
+4. Allez dans l'onglet **Console**
+5. Tapez : `document.cookie`
+6. Copiez **TOUT** le résultat
+
+### Méthode 2 - Format Ikabot
+
+Si vous utilisez déjà Ikabot, vous pouvez copier directement l'objet JSON des cookies :
+```json
+{"PHPSESSID": "abc123", "ikariam": "100554_...", ...}
+```
+
+**IMPORTANT :** Le cookie doit contenir `PHPSESSID`
+
+## 🏗️ Structure du projet
+
+```
+ikamobile/
+├── backend/              # Backend proxy Node.js
+│   ├── src/
+│   │   └── server.js     # Serveur Express
+│   └── package.json
+├── src/
+│   ├── services/         # Services (API)
+│   │   └── ikariamApi.ts # Client API Ikariam
+│   ├── screens/          # Écrans de l'application
+│   │   ├── LoginScreen.tsx
+│   │   ├── CitiesListScreen.tsx
+│   │   └── CityDetailScreen.tsx
+│   ├── types/            # Types TypeScript
+│   ├── constants/        # Constantes du jeu
+│   ├── config/           # Configuration
+│   └── utils/            # Utilitaires
+└── app/                  # Routes Expo Router
+```
+
+## 🔧 Technologies utilisées
+
+**Frontend :**
+- React Native (Expo)
+- TypeScript
+- AsyncStorage (persistance)
+
+**Backend :**
+- Node.js
+- Express
+- node-fetch (requêtes HTTP)
+
+## 🌐 Déploiement du backend
+
+### Heroku (Gratuit)
+
+```bash
+cd backend
+heroku create ikariam-mobile-proxy
+git subtree push --prefix backend heroku main
+```
+
+Puis modifiez `src/config/api.ts` :
+```typescript
+export const PROXY_URL = 'https://ikariam-mobile-proxy.herokuapp.com';
+```
+
+### Render.com (Gratuit)
+
+1. Créez un compte sur [Render.com](https://render.com)
+2. Créez un nouveau **Web Service**
+3. Pointez vers le dossier `backend`
+4. Déployez !
+
+### Vercel
+
+Ajoutez `vercel.json` dans `backend/` :
+```json
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "src/server.js",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "src/server.js"
+    }
+  ]
+}
+```
+
+## 📖 Inspiration
+
+Ce projet s'inspire du reverse-engineering d'[Ikabot](https://github.com/Ikabot-Collective/ikabot), un bot Python pour Ikariam.
+
+## ⚠️ Avertissements
+
+- **Ne partagez jamais votre cookie de session** avec personne
+- Cette application ne collecte aucune donnée
+- La session peut expirer et nécessiter une reconnexion
+- **Pas de bot** : L'application ne fait qu'afficher et interagir avec le jeu, sans automation
+
+## 🛣️ Roadmap (Phase 2)
+
+Fonctionnalités prévues :
+- 🔨 Lancer des constructions
+- 💰 Commerce (marché)
+- ⚔️ Vue militaire (troupes, flottes)
+- 🔬 Recherches technologiques
+- 📬 Messages/diplomatie
+- 🔔 Notifications push
+
+## 📝 Licence
+
+Ce projet est à usage personnel et éducatif uniquement.
+
+## 🤝 Contribution
+
+Les contributions sont les bienvenues ! N'hésitez pas à ouvrir une issue ou une pull request.
