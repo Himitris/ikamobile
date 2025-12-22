@@ -439,20 +439,26 @@ export class IkariamApi {
       }
 
       // Parse les constructions en cours
-      const constructionMatches = html.matchAll(
-        /buildingUpgrade[^}]+position[^:]*:([^,]+)[^}]+buildingId[^:]*:([^,]+)[^}]+upgradeCountDown[^:]*:([^,]+)/g
-      );
+      console.log('📍 getCityDetails: Début parsing constructions...');
       const constructionQueue = [];
 
-      for (const match of constructionMatches) {
-        const countdown = parseNumber(match[3]?.trim());
-        constructionQueue.push({
-          buildingId: match[2]?.trim() || '',
-          buildingName: '',
-          targetLevel: 0,
-          completionTime: Date.now() + countdown * 1000,
-          currentLevel: 0,
-        });
+      try {
+        const constructionMatches = html.matchAll(
+          /buildingUpgrade[^}]+position[^:]*:([^,]+)[^}]+buildingId[^:]*:([^,]+)[^}]+upgradeCountDown[^:]*:([^,]+)/g
+        );
+
+        for (const match of constructionMatches) {
+          const countdown = parseNumber(match[3]?.trim());
+          constructionQueue.push({
+            buildingId: match[2]?.trim() || '',
+            buildingName: '',
+            targetLevel: 0,
+            completionTime: Date.now() + countdown * 1000,
+            currentLevel: 0,
+          });
+        }
+      } catch (constructionError: any) {
+        console.warn('⚠️ Erreur parsing constructions:', constructionError.message);
       }
 
       console.log('📍 getCityDetails: Constructions en cours:', constructionQueue.length);
