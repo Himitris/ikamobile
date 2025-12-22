@@ -199,9 +199,12 @@ export class IkariamApi {
       // Parse le JSON contenant les données des villes
       // Cherche différents patterns possibles
       const patterns = [
-        /relatedCityData\s*:\s*JSON\.parse\('(.+?)',.*?additionalInfo/s,
-        /relatedCityData\s*:\s*JSON\.parse\("(.+?)",.*?additionalInfo/s,
-        /relatedCityData[^{]*({[^}]+})/s,
+        /relatedCityData\s*:\s*JSON\.parse\('(.+?)'\s*,/s,
+        /relatedCityData\s*:\s*JSON\.parse\("(.+?)"\s*,/s,
+        /relatedCityData\s*:\s*JSON\.parse\('(.+?)'/s,
+        /relatedCityData\s*:\s*JSON\.parse\("(.+?)"/s,
+        /relatedCityData\s*:\s*(\{.+?\})\s*,\s*additionalInfo/s,
+        /relatedCityData\s*:\s*(\{(?:[^{}]|(?:\{[^{}]*\}))*\})/s,
       ];
 
       let citiesMatch = null;
@@ -221,7 +224,57 @@ export class IkariamApi {
         console.log('📍 Extrait HTML (recherche relatedCityData):');
         const idx = html.indexOf('relatedCityData');
         if (idx >= 0) {
-          console.log(html.substring(idx, idx + 300));
+          console.log(html.substring(idx, idx + 500));
+
+          // Fallback: extraction manuelle par comptage d'accolades
+          const startIdx = html.indexOf('{', idx);
+          if (startIdx >= 0) {
+            let braceCount = 0;
+            let endIdx = startIdx;
+
+            for (let i = startIdx; i < html.length; i++) {
+              if (html[i] === '{') braceCount++;
+              if (html[i] === '}') braceCount--;
+              if (braceCount === 0) {
+                endIdx = i;
+                break;
+              }
+            }
+
+            if (endIdx > startIdx) {
+              console.log('📍 getCities: Tentative extraction manuelle par comptage accolades');
+              const extractedJson = html.substring(startIdx, endIdx + 1);
+              console.log('📍 JSON extrait (premiers 200 chars):', extractedJson.substring(0, 200));
+
+              try {
+                const citiesData = JSON.parse(extractedJson);
+                const cities: City[] = [];
+
+                for (const cityId in citiesData) {
+                  const cityData = citiesData[cityId];
+                  cities.push({
+                    id: cityId,
+                    name: cityData.name || 'Ville sans nom',
+                    islandId: cityData.islandId || '',
+                    x: cityData.coords?.x || 0,
+                    y: cityData.coords?.y || 0,
+                    resources: {
+                      wood: 0,
+                      wine: 0,
+                      marble: 0,
+                      crystal: 0,
+                      sulfur: 0,
+                    },
+                  });
+                }
+
+                console.log('📍 getCities: Villes parsées (fallback):', cities.length);
+                return { success: true, data: cities };
+              } catch (fallbackError: any) {
+                console.error('📍 getCities: Erreur fallback:', fallbackError.message);
+              }
+            }
+          }
         } else {
           console.log('relatedCityData non trouvé dans le HTML!');
         }
@@ -235,8 +288,56 @@ export class IkariamApi {
 
       console.log('📍 getCities: JSON extrait (premiers 200 chars):', citiesJson.substring(0, 200));
 
-      const citiesData = JSON.parse(citiesJson);
-      console.log('📍 getCities: JSON parsé, nombre de villes:', Object.keys(citiesData).length);
+      let citiesData;
+      try {
+        citiesData = JSON.parse(citiesJson);
+        console.log('📍 getCities: JSON parsé, nombre de villes:', Object.keys(citiesData).length);
+      } catch (parseError: any) {
+        console.error('📍 getCities: Erreur JSON.parse:', parseError.message);
+        console.log('📍 getCities: Tentative fallback avec comptage accolades...');
+
+        // Fallback: retrouver relatedCityData et extraire manuellement
+        const idx = html.indexOf('relatedCityData');
+        if (idx >= 0) {
+          const startIdx = html.indexOf('{', idx);
+          if (startIdx >= 0) {
+            let braceCount = 0;
+            let endIdx = startIdx;
+
+            for (let i = startIdx; i < html.length; i++) {
+              if (html[i] === '{') braceCount++;
+              if (html[i] === '}') braceCount--;
+              if (braceCount === 0) {
+                endIdx = i;
+                break;
+              }
+            }
+
+            if (endIdx > startIdx) {
+              const fallbackJson = html.substring(startIdx, endIdx + 1);
+              console.log('📍 JSON fallback extrait (premiers 200 chars):', fallbackJson.substring(0, 200));
+
+              try {
+                citiesData = JSON.parse(fallbackJson);
+                console.log('📍 getCities: JSON parsé via fallback, nombre de villes:', Object.keys(citiesData).length);
+              } catch (fallbackError: any) {
+                console.error('📍 getCities: Erreur fallback aussi:', fallbackError.message);
+                return {
+                  success: false,
+                  error: 'Impossible de parser les données des villes: ' + fallbackError.message,
+                };
+              }
+            }
+          }
+        }
+
+        if (!citiesData) {
+          return {
+            success: false,
+            error: 'Impossible de parser les données des villes: ' + parseError.message,
+          };
+        }
+      }
 
       const cities: City[] = [];
 
