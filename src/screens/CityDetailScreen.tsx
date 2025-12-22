@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
   View,
-  Text,
   ScrollView,
   StyleSheet,
   ActivityIndicator,
@@ -11,6 +10,8 @@ import {
 } from 'react-native';
 import { ikariamApi } from '../services/ikariamApi';
 import type { City, Construction } from '../types';
+import { IkariamText, IkariamCard, IkariamButton, IkariamBadge } from '@/components/ikariam';
+import { IkariamTheme } from '@/constants/ikariamTheme';
 
 interface CityDetailScreenProps {
   cityId: string;
@@ -77,8 +78,10 @@ export const CityDetailScreen: React.FC<CityDetailScreenProps> = ({ cityId, onBa
   if (loading) {
     return (
       <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color="#3498db" />
-        <Text style={styles.loadingText}>Chargement...</Text>
+        <ActivityIndicator size="large" color={IkariamTheme.colors.wood.base} />
+        <IkariamText variant="body" color="secondary" style={styles.loadingText}>
+          Chargement...
+        </IkariamText>
       </View>
     );
   }
@@ -86,10 +89,15 @@ export const CityDetailScreen: React.FC<CityDetailScreenProps> = ({ cityId, onBa
   if (!city) {
     return (
       <View style={styles.centerContainer}>
-        <Text style={styles.errorText}>Ville non trouvée</Text>
-        <TouchableOpacity style={styles.backButton} onPress={onBack}>
-          <Text style={styles.backButtonText}>Retour</Text>
-        </TouchableOpacity>
+        <IkariamText variant="body" style={styles.errorText}>
+          Ville non trouvée
+        </IkariamText>
+        <IkariamButton
+          title="Retour"
+          onPress={onBack}
+          variant="secondary"
+          size="md"
+        />
       </View>
     );
   }
@@ -98,109 +106,139 @@ export const CityDetailScreen: React.FC<CityDetailScreenProps> = ({ cityId, onBa
     <View style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={onBack} style={styles.backIconButton}>
-          <Text style={styles.backIcon}>←</Text>
+          <IkariamText variant="heading" color="light" style={styles.backIcon}>
+            ←
+          </IkariamText>
         </TouchableOpacity>
-        <Text style={styles.title}>{city.name}</Text>
+        <IkariamText variant="heading" color="light" style={styles.title}>
+          {city.name}
+        </IkariamText>
         <View style={{ width: 40 }} />
       </View>
 
       <ScrollView
         style={styles.content}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor={IkariamTheme.colors.wood.base}
+            colors={[IkariamTheme.colors.wood.base]}
+          />
+        }
       >
         {/* Avertissement si toutes les ressources sont à 0 */}
         {city.resources &&
           Object.values(city.resources).every((val) => val === 0 || val === undefined) && (
-            <View style={styles.warningBanner}>
-              <Text style={styles.warningText}>
+            <IkariamCard variant="default" style={styles.warningBanner}>
+              <IkariamText variant="caption" color="secondary" style={styles.warningText}>
                 ⚠️ Les ressources n'ont pas pu être chargées. Consultez les logs de la console
                 pour plus de détails.
-              </Text>
-            </View>
+              </IkariamText>
+            </IkariamCard>
           )}
 
         {/* Ressources */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Ressources</Text>
+        <IkariamCard style={styles.section}>
+          <IkariamText variant="subheading" style={styles.sectionTitle}>
+            Ressources
+          </IkariamText>
           <View style={styles.resourcesGrid}>
             <ResourceItem
               icon="🪵"
               name="Bois"
               value={formatNumber(city.resources.wood)}
-              color="#8B4513"
+              color={IkariamTheme.colors.resources.wood}
             />
             <ResourceItem
               icon="🍷"
               name="Vin"
               value={formatNumber(city.resources.wine)}
-              color="#8B0000"
+              color={IkariamTheme.colors.resources.wine}
             />
             <ResourceItem
               icon="⚪"
               name="Marbre"
               value={formatNumber(city.resources.marble)}
-              color="#DCDCDC"
+              color={IkariamTheme.colors.resources.marble}
             />
             <ResourceItem
               icon="💎"
               name="Cristal"
               value={formatNumber(city.resources.crystal)}
-              color="#4169E1"
+              color={IkariamTheme.colors.resources.crystal}
             />
             <ResourceItem
               icon="⚠️"
               name="Soufre"
               value={formatNumber(city.resources.sulfur)}
-              color="#FFD700"
+              color={IkariamTheme.colors.resources.sulfur}
             />
             {city.resources.gold !== undefined && (
               <ResourceItem
                 icon="💰"
                 name="Or"
                 value={formatNumber(city.resources.gold)}
-                color="#FFD700"
+                color={IkariamTheme.colors.resources.gold}
               />
             )}
           </View>
-        </View>
+        </IkariamCard>
 
         {/* Citoyens */}
         {city.resources.citizens !== undefined && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Population</Text>
+          <IkariamCard style={styles.section}>
+            <IkariamText variant="subheading" style={styles.sectionTitle}>
+              Population
+            </IkariamText>
             <View style={styles.statsRow}>
-              <Text style={styles.statLabel}>Citoyens disponibles :</Text>
-              <Text style={styles.statValue}>{formatNumber(city.resources.citizens)}</Text>
+              <IkariamText variant="caption" color="secondary">
+                Citoyens disponibles :
+              </IkariamText>
+              <IkariamText variant="body" weight="bold">
+                {formatNumber(city.resources.citizens)}
+              </IkariamText>
             </View>
             {city.resources.scientistsAvailable !== undefined && (
               <View style={styles.statsRow}>
-                <Text style={styles.statLabel}>Scientifiques disponibles :</Text>
-                <Text style={styles.statValue}>
+                <IkariamText variant="caption" color="secondary">
+                  Scientifiques disponibles :
+                </IkariamText>
+                <IkariamText variant="body" weight="bold">
                   {formatNumber(city.resources.scientistsAvailable)}
-                </Text>
+                </IkariamText>
               </View>
             )}
-          </View>
+          </IkariamCard>
         )}
 
         {/* Constructions en cours */}
         {city.constructionQueue && city.constructionQueue.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Constructions en cours</Text>
+          <IkariamCard style={styles.section}>
+            <IkariamText variant="subheading" style={styles.sectionTitle}>
+              Constructions en cours
+            </IkariamText>
             {city.constructionQueue.map((construction, index) => (
               <ConstructionItem key={index} construction={construction} />
             ))}
-          </View>
+          </IkariamCard>
         )}
 
         {city.constructionQueue?.length === 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Constructions</Text>
-            <Text style={styles.emptyText}>Aucune construction en cours</Text>
-            <TouchableOpacity style={styles.buildButton}>
-              <Text style={styles.buildButtonText}>Lancer une construction</Text>
-            </TouchableOpacity>
-          </View>
+          <IkariamCard style={styles.section}>
+            <IkariamText variant="subheading" style={styles.sectionTitle}>
+              Constructions
+            </IkariamText>
+            <IkariamText variant="caption" color="secondary" style={styles.emptyText}>
+              Aucune construction en cours
+            </IkariamText>
+            <IkariamButton
+              title="Lancer une construction"
+              onPress={() => {}}
+              variant="success"
+              size="md"
+            />
+          </IkariamCard>
         )}
       </ScrollView>
     </View>
@@ -214,9 +252,15 @@ const ResourceItem: React.FC<{
   color: string;
 }> = ({ icon, name, value, color }) => (
   <View style={styles.resourceItem}>
-    <Text style={styles.resourceIcon}>{icon}</Text>
-    <Text style={styles.resourceName}>{name}</Text>
-    <Text style={[styles.resourceValue, { color }]}>{value}</Text>
+    <IkariamText variant="body" style={styles.resourceIcon}>
+      {icon}
+    </IkariamText>
+    <IkariamText variant="caption" color="secondary" style={styles.resourceName}>
+      {name}
+    </IkariamText>
+    <IkariamText variant="body" weight="bold" style={[styles.resourceValue, { color }]}>
+      {value}
+    </IkariamText>
   </View>
 );
 
@@ -243,14 +287,14 @@ const ConstructionItem: React.FC<{ construction: Construction }> = ({ constructi
   return (
     <View style={styles.constructionItem}>
       <View style={styles.constructionInfo}>
-        <Text style={styles.constructionName}>
+        <IkariamText variant="body" weight="semibold">
           {construction.buildingName || 'Bâtiment inconnu'}
-        </Text>
-        <Text style={styles.constructionLevel}>
+        </IkariamText>
+        <IkariamText variant="caption" color="secondary">
           Niveau {construction.currentLevel} → {construction.targetLevel}
-        </Text>
+        </IkariamText>
       </View>
-      <Text style={styles.constructionTime}>{timeRemaining}</Text>
+      <IkariamBadge label={timeRemaining} variant="info" size="sm" />
     </View>
   );
 };
@@ -258,20 +302,24 @@ const ConstructionItem: React.FC<{ construction: Construction }> = ({ constructi
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: IkariamTheme.colors.background.primary,
   },
   centerContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    padding: IkariamTheme.spacing.xl,
   },
   header: {
-    backgroundColor: '#3498db',
-    padding: 20,
-    paddingTop: 60,
+    backgroundColor: IkariamTheme.colors.wood.dark,
+    padding: IkariamTheme.spacing.lg,
+    paddingTop: IkariamTheme.spacing['5xl'],
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    borderBottomWidth: 3,
+    borderBottomColor: IkariamTheme.colors.wood.darkest,
+    ...IkariamTheme.shadows.lg,
   },
   backIconButton: {
     width: 40,
@@ -280,70 +328,37 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   backIcon: {
-    fontSize: 24,
-    color: '#fff',
+    textAlign: 'center',
   },
   title: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#fff',
     flex: 1,
     textAlign: 'center',
   },
   loadingText: {
-    marginTop: 10,
-    fontSize: 16,
-    color: '#7f8c8d',
+    marginTop: IkariamTheme.spacing.md,
   },
   errorText: {
-    fontSize: 16,
-    color: '#e74c3c',
-    marginBottom: 20,
-  },
-  backButton: {
-    backgroundColor: '#3498db',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 5,
-  },
-  backButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
+    marginBottom: IkariamTheme.spacing.lg,
+    color: IkariamTheme.colors.error,
   },
   content: {
     flex: 1,
   },
   warningBanner: {
-    backgroundColor: '#fff3cd',
-    padding: 15,
-    margin: 15,
+    margin: IkariamTheme.spacing.base,
     marginBottom: 0,
-    borderRadius: 10,
+    backgroundColor: IkariamTheme.colors.gold.light,
+    borderColor: IkariamTheme.colors.gold.dark,
     borderLeftWidth: 4,
-    borderLeftColor: '#ffc107',
   },
   warningText: {
-    color: '#856404',
-    fontSize: 14,
-    lineHeight: 20,
+    lineHeight: IkariamTheme.typography.fontSize.sm * IkariamTheme.typography.lineHeight.normal,
   },
   section: {
-    backgroundColor: '#fff',
-    margin: 15,
-    padding: 15,
-    borderRadius: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    margin: IkariamTheme.spacing.base,
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#2c3e50',
-    marginBottom: 15,
+    marginBottom: IkariamTheme.spacing.base,
   },
   resourcesGrid: {
     flexDirection: 'row',
@@ -352,83 +367,47 @@ const styles = StyleSheet.create({
   },
   resourceItem: {
     width: '48%',
-    backgroundColor: '#f8f9fa',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 10,
+    backgroundColor: IkariamTheme.colors.parchment.base,
+    padding: IkariamTheme.spacing.md,
+    borderRadius: IkariamTheme.borderRadius.base,
+    borderWidth: 1,
+    borderColor: IkariamTheme.colors.border.light,
+    marginBottom: IkariamTheme.spacing.md,
     alignItems: 'center',
+    ...IkariamTheme.shadows.sm,
   },
   resourceIcon: {
-    fontSize: 24,
-    marginBottom: 5,
+    marginBottom: IkariamTheme.spacing.xs,
   },
   resourceName: {
-    fontSize: 12,
-    color: '#7f8c8d',
-    marginBottom: 5,
+    marginBottom: IkariamTheme.spacing.xs,
   },
-  resourceValue: {
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
+  resourceValue: {},
   statsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 8,
+    paddingVertical: IkariamTheme.spacing.sm,
     borderBottomWidth: 1,
-    borderBottomColor: '#ecf0f1',
-  },
-  statLabel: {
-    fontSize: 14,
-    color: '#7f8c8d',
-  },
-  statValue: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#2c3e50',
+    borderBottomColor: IkariamTheme.colors.border.light,
   },
   constructionItem: {
-    backgroundColor: '#e8f4f8',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 10,
+    backgroundColor: IkariamTheme.colors.parchment.base,
+    padding: IkariamTheme.spacing.md,
+    borderRadius: IkariamTheme.borderRadius.base,
+    borderWidth: 1,
+    borderColor: IkariamTheme.colors.border.base,
+    marginBottom: IkariamTheme.spacing.md,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    ...IkariamTheme.shadows.sm,
   },
   constructionInfo: {
     flex: 1,
-  },
-  constructionName: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#2c3e50',
-    marginBottom: 4,
-  },
-  constructionLevel: {
-    fontSize: 12,
-    color: '#7f8c8d',
-  },
-  constructionTime: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#3498db',
+    marginRight: IkariamTheme.spacing.md,
   },
   emptyText: {
-    fontSize: 14,
-    color: '#7f8c8d',
     textAlign: 'center',
-    marginBottom: 15,
-  },
-  buildButton: {
-    backgroundColor: '#27ae60',
-    padding: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  buildButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
+    marginBottom: IkariamTheme.spacing.base,
   },
 });

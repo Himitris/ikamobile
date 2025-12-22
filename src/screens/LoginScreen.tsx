@@ -1,16 +1,14 @@
 import React, { useState } from 'react';
 import {
   View,
-  Text,
-  TextInput,
-  TouchableOpacity,
   StyleSheet,
-  ActivityIndicator,
   Alert,
   ScrollView,
 } from 'react-native';
 import { ikariamApi } from '../services/ikariamApi';
 import { storageService } from '../services/storage';
+import { IkariamText, IkariamCard, IkariamButton, IkariamInput } from '@/components/ikariam';
+import { IkariamTheme } from '@/constants/ikariamTheme';
 
 interface LoginScreenProps {
   onLoginSuccess: () => void;
@@ -60,31 +58,40 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <View style={styles.content}>
-        <Text style={styles.title}>Ikariam Mobile</Text>
-        <Text style={styles.subtitle}>Connexion</Text>
+        <IkariamText variant="title" style={styles.title}>
+          Ikariam Mobile
+        </IkariamText>
+        <IkariamText variant="subheading" color="secondary" style={styles.subtitle}>
+          Connexion à votre empire
+        </IkariamText>
 
-        <View style={styles.instructionsBox}>
-          <Text style={styles.instructionsTitle}>Comment obtenir votre cookie ?</Text>
-          <Text style={styles.instructionsText}>
-            <Text style={styles.bold}>Méthode 1 - Standard :{'\n'}</Text>
+        <IkariamCard variant="highlighted" style={styles.instructionsCard}>
+          <IkariamText variant="subheading" style={styles.instructionsTitle}>
+            Comment obtenir votre cookie ?
+          </IkariamText>
+          <IkariamText variant="caption" color="secondary" style={styles.instructionsText}>
+            <IkariamText variant="caption" weight="bold">
+              Méthode 1 - Standard :{'\n'}
+            </IkariamText>
             1. Ouvrez Ikariam dans votre navigateur{'\n'}
             2. Connectez-vous à votre compte{'\n'}
             3. F12 → Console → Tapez: document.cookie{'\n'}
             4. Copiez TOUT le résultat{'\n'}
             {'\n'}
-            <Text style={styles.bold}>Méthode 2 - Format Ikabot :{'\n'}</Text>
+            <IkariamText variant="caption" weight="bold">
+              Méthode 2 - Format Ikabot :{'\n'}
+            </IkariamText>
             Collez directement l'objet JSON d'Ikabot{'\n'}
             Ex: {'{'}&#34;PHPSESSID&#34;: &#34;abc123&#34;, &#34;ikariam&#34;: &#34;...&#34;{'}'}
             {'\n'}
             {'\n'}
             ⚠️ IMPORTANT: Doit contenir PHPSESSID
-          </Text>
-        </View>
+          </IkariamText>
+        </IkariamCard>
 
         <View style={styles.form}>
-          <Text style={styles.label}>Serveur</Text>
-          <TextInput
-            style={styles.input}
+          <IkariamInput
+            label="Serveur"
             placeholder="Ex: s1-fr, s42-de, s100-en"
             value={server}
             onChangeText={setServer}
@@ -92,9 +99,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
             autoCorrect={false}
           />
 
-          <Text style={styles.label}>Cookie de session</Text>
-          <TextInput
-            style={[styles.input, styles.cookieInput]}
+          <IkariamInput
+            label="Cookie de session"
             placeholder="Collez votre cookie ici..."
             value={cookie}
             onChangeText={setCookie}
@@ -102,27 +108,25 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
             numberOfLines={4}
             autoCapitalize="none"
             autoCorrect={false}
+            inputStyle={styles.cookieInput}
           />
 
-          <TouchableOpacity
-            style={[styles.button, loading && styles.buttonDisabled]}
+          <IkariamButton
+            title="Se connecter"
             onPress={handleLogin}
+            variant="primary"
+            size="lg"
+            loading={loading}
             disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.buttonText}>Se connecter</Text>
-            )}
-          </TouchableOpacity>
+          />
         </View>
 
-        <View style={styles.warningBox}>
-          <Text style={styles.warningText}>
+        <IkariamCard variant="default" style={styles.warningCard}>
+          <IkariamText variant="caption" color="secondary" style={styles.warningText}>
             ⚠️ Attention : Ne partagez jamais votre cookie de session avec personne.
             Cette application ne collecte aucune donnée.
-          </Text>
-        </View>
+          </IkariamText>
+        </IkariamCard>
       </View>
     </ScrollView>
   );
@@ -131,94 +135,43 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
 const styles = StyleSheet.create({
   container: {
     flexGrow: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: IkariamTheme.colors.background.primary,
   },
   content: {
     flex: 1,
-    padding: 20,
-    paddingTop: 60,
+    padding: IkariamTheme.spacing.lg,
+    paddingTop: IkariamTheme.spacing['5xl'],
   },
   title: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#2c3e50',
     textAlign: 'center',
-    marginBottom: 10,
+    marginBottom: IkariamTheme.spacing.sm,
   },
   subtitle: {
-    fontSize: 20,
-    color: '#7f8c8d',
     textAlign: 'center',
-    marginBottom: 30,
+    marginBottom: IkariamTheme.spacing.xl,
   },
-  instructionsBox: {
-    backgroundColor: '#e8f4f8',
-    padding: 15,
-    borderRadius: 10,
-    marginBottom: 20,
+  instructionsCard: {
+    marginBottom: IkariamTheme.spacing.lg,
   },
   instructionsTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#2c3e50',
-    marginBottom: 10,
+    marginBottom: IkariamTheme.spacing.md,
   },
   instructionsText: {
-    fontSize: 14,
-    color: '#34495e',
-    lineHeight: 22,
-  },
-  bold: {
-    fontWeight: 'bold',
-    color: '#2c3e50',
+    lineHeight: IkariamTheme.typography.fontSize.sm * IkariamTheme.typography.lineHeight.relaxed,
   },
   form: {
-    marginBottom: 20,
-  },
-  label: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#2c3e50',
-    marginBottom: 8,
-  },
-  input: {
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 14,
-    marginBottom: 20,
+    marginBottom: IkariamTheme.spacing.lg,
   },
   cookieInput: {
     height: 100,
     textAlignVertical: 'top',
   },
-  button: {
-    backgroundColor: '#3498db',
-    padding: 15,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  buttonDisabled: {
-    backgroundColor: '#95a5a6',
-  },
-  buttonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  warningBox: {
-    backgroundColor: '#fff3cd',
-    padding: 15,
-    borderRadius: 10,
+  warningCard: {
+    backgroundColor: IkariamTheme.colors.gold.light,
+    borderColor: IkariamTheme.colors.gold.dark,
     borderLeftWidth: 4,
-    borderLeftColor: '#ffc107',
   },
   warningText: {
-    fontSize: 13,
-    color: '#856404',
-    lineHeight: 20,
+    lineHeight: IkariamTheme.typography.fontSize.sm * IkariamTheme.typography.lineHeight.normal,
   },
 });

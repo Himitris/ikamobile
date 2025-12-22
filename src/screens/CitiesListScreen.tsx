@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
   View,
-  Text,
   FlatList,
   TouchableOpacity,
   StyleSheet,
@@ -12,6 +11,8 @@ import {
 import { ikariamApi } from '../services/ikariamApi';
 import { storageService } from '../services/storage';
 import type { City } from '../types';
+import { IkariamText, IkariamCard, IkariamButton, IkariamBadge } from '@/components/ikariam';
+import { IkariamTheme } from '@/constants/ikariamTheme';
 
 interface CitiesListScreenProps {
   onCitySelect: (cityId: string) => void;
@@ -83,24 +84,30 @@ export const CitiesListScreen: React.FC<CitiesListScreenProps> = ({
   }, []);
 
   const renderCityItem = ({ item }: { item: City }) => (
-    <TouchableOpacity style={styles.cityCard} onPress={() => onCitySelect(item.id)}>
-      <View style={styles.cityHeader}>
-        <Text style={styles.cityName}>{item.name}</Text>
-        <Text style={styles.cityCoords}>
-          [{item.x}:{item.y}]
-        </Text>
-      </View>
-      <View style={styles.cityInfo}>
-        <Text style={styles.cityId}>ID: {item.id}</Text>
-      </View>
+    <TouchableOpacity onPress={() => onCitySelect(item.id)}>
+      <IkariamCard style={styles.cityCard}>
+        <View style={styles.cityHeader}>
+          <IkariamText variant="heading" style={styles.cityName}>
+            {item.name}
+          </IkariamText>
+          <IkariamBadge label={`[${item.x}:${item.y}]`} size="sm" variant="info" />
+        </View>
+        <View style={styles.cityInfo}>
+          <IkariamText variant="caption" color="tertiary">
+            ID: {item.id}
+          </IkariamText>
+        </View>
+      </IkariamCard>
     </TouchableOpacity>
   );
 
   if (loading) {
     return (
       <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color="#3498db" />
-        <Text style={styles.loadingText}>Chargement des villes...</Text>
+        <ActivityIndicator size="large" color={IkariamTheme.colors.wood.base} />
+        <IkariamText variant="body" color="secondary" style={styles.loadingText}>
+          Chargement des villes...
+        </IkariamText>
       </View>
     );
   }
@@ -108,29 +115,50 @@ export const CitiesListScreen: React.FC<CitiesListScreenProps> = ({
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Mes Villes ({cities.length})</Text>
+        <View style={styles.headerContent}>
+          <IkariamText variant="heading" color="light" style={styles.title}>
+            Mes Villes
+          </IkariamText>
+          <IkariamBadge
+            label={`${cities.length}`}
+            variant="warning"
+            size="md"
+            style={styles.citiesCount}
+          />
+        </View>
         <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-          <Text style={styles.logoutButtonText}>Déconnexion</Text>
+          <IkariamText variant="label" color="light">
+            Déconnexion
+          </IkariamText>
         </TouchableOpacity>
       </View>
 
       {error && (
-        <View style={styles.errorBanner}>
-          <Text style={styles.errorText}>⚠️ {error}</Text>
-          <TouchableOpacity onPress={() => setError(null)} style={styles.dismissButton}>
-            <Text style={styles.dismissText}>✕</Text>
-          </TouchableOpacity>
-        </View>
+        <IkariamCard variant="default" style={styles.errorBanner}>
+          <View style={styles.errorContent}>
+            <IkariamText variant="caption" style={styles.errorText}>
+              ⚠️ {error}
+            </IkariamText>
+            <TouchableOpacity onPress={() => setError(null)} style={styles.dismissButton}>
+              <IkariamText variant="body" weight="bold" style={styles.dismissText}>
+                ✕
+              </IkariamText>
+            </TouchableOpacity>
+          </View>
+        </IkariamCard>
       )}
 
       {cities.length === 0 ? (
         <View style={styles.centerContainer}>
-          <Text style={styles.emptyText}>
+          <IkariamText variant="body" color="secondary" style={styles.emptyText}>
             {error ? 'Erreur de chargement' : 'Aucune ville trouvée'}
-          </Text>
-          <TouchableOpacity style={styles.retryButton} onPress={loadCities}>
-            <Text style={styles.retryButtonText}>Réessayer</Text>
-          </TouchableOpacity>
+          </IkariamText>
+          <IkariamButton
+            title="Réessayer"
+            onPress={loadCities}
+            variant="secondary"
+            size="md"
+          />
         </View>
       ) : (
         <FlatList
@@ -139,7 +167,12 @@ export const CitiesListScreen: React.FC<CitiesListScreenProps> = ({
           renderItem={renderCityItem}
           contentContainerStyle={styles.listContent}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor={IkariamTheme.colors.wood.base}
+              colors={[IkariamTheme.colors.wood.base]}
+            />
           }
         />
       )}
@@ -150,118 +183,88 @@ export const CitiesListScreen: React.FC<CitiesListScreenProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: IkariamTheme.colors.background.primary,
   },
   centerContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    padding: IkariamTheme.spacing.xl,
   },
   header: {
-    backgroundColor: '#3498db',
-    padding: 20,
-    paddingTop: 60,
+    backgroundColor: IkariamTheme.colors.wood.dark,
+    padding: IkariamTheme.spacing.lg,
+    paddingTop: IkariamTheme.spacing['5xl'],
+    borderBottomWidth: 3,
+    borderBottomColor: IkariamTheme.colors.wood.darkest,
+    ...IkariamTheme.shadows.lg,
+  },
+  headerContent: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: IkariamTheme.spacing.md,
   },
   title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff',
+    marginRight: IkariamTheme.spacing.md,
+  },
+  citiesCount: {
+    marginTop: IkariamTheme.spacing.xs,
   },
   logoutButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    paddingHorizontal: 15,
-    paddingVertical: 8,
-    borderRadius: 5,
-  },
-  logoutButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
+    backgroundColor: IkariamTheme.colors.wood.darkest,
+    paddingHorizontal: IkariamTheme.spacing.base,
+    paddingVertical: IkariamTheme.spacing.sm,
+    borderRadius: IkariamTheme.borderRadius.base,
+    borderWidth: 1,
+    borderColor: IkariamTheme.colors.wood.base,
+    ...IkariamTheme.shadows.sm,
   },
   loadingText: {
-    marginTop: 10,
-    fontSize: 16,
-    color: '#7f8c8d',
+    marginTop: IkariamTheme.spacing.md,
   },
   listContent: {
-    padding: 15,
+    padding: IkariamTheme.spacing.base,
   },
   cityCard: {
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 15,
-    marginBottom: 15,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    marginBottom: IkariamTheme.spacing.base,
   },
   cityHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: IkariamTheme.spacing.md,
   },
   cityName: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#2c3e50',
     flex: 1,
-  },
-  cityCoords: {
-    fontSize: 14,
-    color: '#7f8c8d',
-    marginLeft: 10,
+    marginRight: IkariamTheme.spacing.md,
   },
   cityInfo: {
     borderTopWidth: 1,
-    borderTopColor: '#ecf0f1',
-    paddingTop: 10,
-  },
-  cityId: {
-    fontSize: 12,
-    color: '#95a5a6',
+    borderTopColor: IkariamTheme.colors.border.light,
+    paddingTop: IkariamTheme.spacing.sm,
   },
   emptyText: {
-    fontSize: 16,
-    color: '#7f8c8d',
-    marginBottom: 20,
+    marginBottom: IkariamTheme.spacing.lg,
   },
   errorBanner: {
-    backgroundColor: '#ffe6e6',
-    padding: 15,
+    margin: IkariamTheme.spacing.base,
+    backgroundColor: IkariamTheme.colors.error,
+    borderColor: '#A0522D',
+    borderWidth: 2,
+  },
+  errorContent: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    borderBottomWidth: 1,
-    borderBottomColor: '#ffcccc',
   },
   errorText: {
-    color: '#c0392b',
-    fontSize: 14,
+    color: IkariamTheme.colors.text.light,
     flex: 1,
   },
   dismissButton: {
-    padding: 5,
+    paddingLeft: IkariamTheme.spacing.md,
   },
   dismissText: {
-    color: '#c0392b',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  retryButton: {
-    backgroundColor: '#3498db',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 5,
-  },
-  retryButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
+    color: IkariamTheme.colors.text.light,
   },
 });
