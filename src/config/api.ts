@@ -8,7 +8,7 @@ import { Platform } from 'react-native';
 // Pour trouver votre IP:
 // - Windows: ipconfig (cherchez "Adresse IPv4")
 // - Mac/Linux: ifconfig | grep "inet " (ou ip addr show)
-const LOCAL_IP = '192.168.1.46';
+const LOCAL_IP = '192.168.1.133';
 
 // URL du backend proxy
 // Automatiquement détecte si web (localhost) ou mobile (IP locale)
