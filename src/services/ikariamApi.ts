@@ -190,21 +190,54 @@ export class IkariamApi {
     }
 
     try {
+      console.log('📍 getCities: Début de la récupération des villes...');
       const response = await this.request('/index.php?view=city');
       const html = response.data;
 
-      // Parse le JSON contenant les données des villes
-      const citiesMatch = html.match(/relatedCityData\s*:\s*JSON\.parse\('(.+?)',.*?additionalInfo/s);
+      console.log('📍 getCities: HTML reçu, longueur:', html.length);
 
-      if (!citiesMatch) {
-        return { success: false, error: 'Impossible de récupérer les villes' };
+      // Parse le JSON contenant les données des villes
+      // Cherche différents patterns possibles
+      const patterns = [
+        /relatedCityData\s*:\s*JSON\.parse\('(.+?)',.*?additionalInfo/s,
+        /relatedCityData\s*:\s*JSON\.parse\("(.+?)",.*?additionalInfo/s,
+        /relatedCityData[^{]*({[^}]+})/s,
+      ];
+
+      let citiesMatch = null;
+      let patternIndex = -1;
+
+      for (let i = 0; i < patterns.length; i++) {
+        citiesMatch = html.match(patterns[i]);
+        if (citiesMatch) {
+          patternIndex = i;
+          console.log('📍 getCities: Pattern trouvé (index', i, ')');
+          break;
+        }
       }
 
+      if (!citiesMatch) {
+        console.error('📍 getCities: Aucun pattern trouvé!');
+        console.log('📍 Extrait HTML (recherche relatedCityData):');
+        const idx = html.indexOf('relatedCityData');
+        if (idx >= 0) {
+          console.log(html.substring(idx, idx + 300));
+        } else {
+          console.log('relatedCityData non trouvé dans le HTML!');
+        }
+        return { success: false, error: 'Impossible de récupérer les villes (pattern non trouvé)' };
+      }
+
+      console.log('📍 getCities: Extraction du JSON...');
       // Decode le JSON échappé
       let citiesJson = citiesMatch[1];
       citiesJson = citiesJson.replace(/\\'/g, "'").replace(/\\"/g, '"').replace(/\\\\/g, '\\');
 
+      console.log('📍 getCities: JSON extrait (premiers 200 chars):', citiesJson.substring(0, 200));
+
       const citiesData = JSON.parse(citiesJson);
+      console.log('📍 getCities: JSON parsé, nombre de villes:', Object.keys(citiesData).length);
+
       const cities: City[] = [];
 
       // Parse chaque ville
@@ -226,8 +259,10 @@ export class IkariamApi {
         });
       }
 
+      console.log('📍 getCities: Villes parsées:', cities.length);
       return { success: true, data: cities };
     } catch (error: any) {
+      console.error('📍 getCities: ERREUR:', error);
       return {
         success: false,
         error: error.message || 'Erreur lors de la récupération des villes',
