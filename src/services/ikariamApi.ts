@@ -417,6 +417,11 @@ export class IkariamApi {
       }
 
       if (resourcesData) {
+        // DEBUG: log les valeurs brutes
+        console.log('🔍 DEBUG resourcesData["1"]:', resourcesData['1']);
+        console.log('🔍 DEBUG resourcesData["2"]:', resourcesData['2']);
+        console.log('🔍 DEBUG resourcesData.resource:', resourcesData.resource);
+
         // Mapping des IDs de ressources Ikariam vers les noms
         // 1 = wood, 2 = wine, 3 = marble, 4 = crystal, 5 = sulfur
         resources = {
@@ -451,9 +456,8 @@ export class IkariamApi {
       }
 
       console.log('📍 getCityDetails: Constructions en cours:', constructionQueue.length);
-      console.log('✅ getCityDetails: Retour des données');
 
-      return {
+      const result = {
         success: true,
         data: {
           id: cityId,
@@ -465,6 +469,9 @@ export class IkariamApi {
           constructionQueue,
         },
       };
+
+      console.log('✅ getCityDetails: Retour:', JSON.stringify(result, null, 2).substring(0, 500));
+      return result;
     } catch (error: any) {
       return {
         success: false,
