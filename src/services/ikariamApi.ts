@@ -3,6 +3,76 @@ import { parseCookies, validateCookies } from '../utils/cookieParser';
 import { PROXY_URL, USE_PROXY } from '../config/api';
 
 /**
+ * Extrait un objet JSON depuis du HTML en utilisant le comptage d'accolades
+ * @param html Le HTML source
+ * @param startPattern Le pattern de recherche (ex: "relatedCityData", "updateBackgroundData")
+ * @returns Le JSON extrait ou null si non trouvé
+ */
+function extractJsonFromHtml(html: string, startPattern: string): any | null {
+  const idx = html.indexOf(startPattern);
+  if (idx < 0) {
+    console.log(`⚠️ Pattern "${startPattern}" non trouvé dans le HTML`);
+    return null;
+  }
+
+  const startIdx = html.indexOf('{', idx);
+  if (startIdx < 0) {
+    console.log(`⚠️ Accolade ouvrante non trouvée après "${startPattern}"`);
+    return null;
+  }
+
+  let braceCount = 0;
+  let endIdx = startIdx;
+  let inString = false;
+  let escapeNext = false;
+
+  for (let i = startIdx; i < html.length; i++) {
+    const char = html[i];
+
+    if (escapeNext) {
+      escapeNext = false;
+      continue;
+    }
+
+    if (char === '\\') {
+      escapeNext = true;
+      continue;
+    }
+
+    if (char === '"' && !escapeNext) {
+      inString = !inString;
+      continue;
+    }
+
+    if (!inString) {
+      if (char === '{') braceCount++;
+      if (char === '}') braceCount--;
+
+      if (braceCount === 0) {
+        endIdx = i;
+        break;
+      }
+    }
+  }
+
+  if (braceCount !== 0 || endIdx === startIdx) {
+    console.log(`⚠️ JSON incomplet trouvé pour "${startPattern}"`);
+    return null;
+  }
+
+  const jsonStr = html.substring(startIdx, endIdx + 1);
+  console.log(`✅ JSON extrait pour "${startPattern}" (${jsonStr.length} chars)`);
+
+  try {
+    return JSON.parse(jsonStr);
+  } catch (e: any) {
+    console.error(`❌ Erreur parsing JSON pour "${startPattern}":`, e.message);
+    console.log('Extrait (200 premiers chars):', jsonStr.substring(0, 200));
+    return null;
+  }
+}
+
+/**
  * Service API pour interagir avec Ikariam
  * Basé sur le reverse-engineering d'Ikabot
  * Utilise un backend proxy pour contourner les limitations React Native
@@ -196,172 +266,17 @@ export class IkariamApi {
 
       console.log('📍 getCities: HTML reçu, longueur:', html.length);
 
-      // Parse le JSON contenant les données des villes
-      // Cherche différents patterns possibles
-      const patterns = [
-        /relatedCityData\s*:\s*JSON\.parse\('(.+?)'\s*,/s,
-        /relatedCityData\s*:\s*JSON\.parse\("(.+?)"\s*,/s,
-        /relatedCityData\s*:\s*JSON\.parse\('(.+?)'/s,
-        /relatedCityData\s*:\s*JSON\.parse\("(.+?)"/s,
-        /relatedCityData\s*:\s*(\{.+?\})\s*,\s*additionalInfo/s,
-        /relatedCityData\s*:\s*(\{(?:[^{}]|(?:\{[^{}]*\}))*\})/s,
-      ];
+      // Extrait relatedCityData en utilisant extractJsonFromHtml
+      const citiesData = extractJsonFromHtml(html, 'relatedCityData');
 
-      let citiesMatch = null;
-      let patternIndex = -1;
-
-      for (let i = 0; i < patterns.length; i++) {
-        citiesMatch = html.match(patterns[i]);
-        if (citiesMatch) {
-          patternIndex = i;
-          console.log('📍 getCities: Pattern trouvé (index', i, ')');
-          break;
-        }
+      if (!citiesData) {
+        return {
+          success: false,
+          error: 'Impossible de récupérer les données des villes depuis le HTML',
+        };
       }
 
-      if (!citiesMatch) {
-        console.error('📍 getCities: Aucun pattern trouvé!');
-        console.log('📍 Extrait HTML (recherche relatedCityData):');
-        const idx = html.indexOf('relatedCityData');
-        if (idx >= 0) {
-          console.log(html.substring(idx, idx + 500));
-
-          // Fallback: extraction manuelle par comptage d'accolades
-          const startIdx = html.indexOf('{', idx);
-          if (startIdx >= 0) {
-            let braceCount = 0;
-            let endIdx = startIdx;
-
-            for (let i = startIdx; i < html.length; i++) {
-              if (html[i] === '{') braceCount++;
-              if (html[i] === '}') braceCount--;
-              if (braceCount === 0) {
-                endIdx = i;
-                break;
-              }
-            }
-
-            if (endIdx > startIdx) {
-              console.log('📍 getCities: Tentative extraction manuelle par comptage accolades');
-              const extractedJson = html.substring(startIdx, endIdx + 1);
-              console.log('📍 JSON extrait (premiers 200 chars):', extractedJson.substring(0, 200));
-
-              try {
-                const citiesData = JSON.parse(extractedJson);
-                const cities: City[] = [];
-
-                for (const cityId in citiesData) {
-                  const cityData = citiesData[cityId];
-
-                  // Filtre: ne garde que les vraies villes
-                  const isCityKey = cityId.startsWith('city_');
-                  const isCityObject = typeof cityData === 'object' && cityData !== null &&
-                                       ('id' in cityData || 'name' in cityData);
-
-                  if (!isCityKey && !isCityObject) {
-                    console.log('📍 getCities (fallback): Ignore métadonnée:', cityId);
-                    continue;
-                  }
-
-                  // Parse les coordonnées
-                  let x = 0, y = 0;
-                  if (typeof cityData.coords === 'string') {
-                    const coordMatch = cityData.coords.match(/\[(\d+):(\d+)\]/);
-                    if (coordMatch) {
-                      x = parseInt(coordMatch[1]);
-                      y = parseInt(coordMatch[2]);
-                    }
-                  } else if (cityData.coords && typeof cityData.coords === 'object') {
-                    x = cityData.coords.x || 0;
-                    y = cityData.coords.y || 0;
-                  }
-
-                  cities.push({
-                    id: cityId,
-                    name: cityData.name || 'Ville sans nom',
-                    islandId: cityData.islandId || '',
-                    x,
-                    y,
-                    resources: {
-                      wood: 0,
-                      wine: 0,
-                      marble: 0,
-                      crystal: 0,
-                      sulfur: 0,
-                    },
-                  });
-                }
-
-                console.log('📍 getCities: Villes parsées (fallback):', cities.length);
-                return { success: true, data: cities };
-              } catch (fallbackError: any) {
-                console.error('📍 getCities: Erreur fallback:', fallbackError.message);
-              }
-            }
-          }
-        } else {
-          console.log('relatedCityData non trouvé dans le HTML!');
-        }
-        return { success: false, error: 'Impossible de récupérer les villes (pattern non trouvé)' };
-      }
-
-      console.log('📍 getCities: Extraction du JSON...');
-      // Decode le JSON échappé
-      let citiesJson = citiesMatch[1];
-      citiesJson = citiesJson.replace(/\\'/g, "'").replace(/\\"/g, '"').replace(/\\\\/g, '\\');
-
-      console.log('📍 getCities: JSON extrait (premiers 200 chars):', citiesJson.substring(0, 200));
-
-      let citiesData;
-      try {
-        citiesData = JSON.parse(citiesJson);
-        console.log('📍 getCities: JSON parsé, nombre de villes:', Object.keys(citiesData).length);
-      } catch (parseError: any) {
-        console.error('📍 getCities: Erreur JSON.parse:', parseError.message);
-        console.log('📍 getCities: Tentative fallback avec comptage accolades...');
-
-        // Fallback: retrouver relatedCityData et extraire manuellement
-        const idx = html.indexOf('relatedCityData');
-        if (idx >= 0) {
-          const startIdx = html.indexOf('{', idx);
-          if (startIdx >= 0) {
-            let braceCount = 0;
-            let endIdx = startIdx;
-
-            for (let i = startIdx; i < html.length; i++) {
-              if (html[i] === '{') braceCount++;
-              if (html[i] === '}') braceCount--;
-              if (braceCount === 0) {
-                endIdx = i;
-                break;
-              }
-            }
-
-            if (endIdx > startIdx) {
-              const fallbackJson = html.substring(startIdx, endIdx + 1);
-              console.log('📍 JSON fallback extrait (premiers 200 chars):', fallbackJson.substring(0, 200));
-
-              try {
-                citiesData = JSON.parse(fallbackJson);
-                console.log('📍 getCities: JSON parsé via fallback, nombre de villes:', Object.keys(citiesData).length);
-              } catch (fallbackError: any) {
-                console.error('📍 getCities: Erreur fallback aussi:', fallbackError.message);
-                return {
-                  success: false,
-                  error: 'Impossible de parser les données des villes: ' + fallbackError.message,
-                };
-              }
-            }
-          }
-        }
-
-        if (!citiesData) {
-          return {
-            success: false,
-            error: 'Impossible de parser les données des villes: ' + parseError.message,
-          };
-        }
-      }
+      console.log('📍 getCities: Données parsées, nombre total de clés:', Object.keys(citiesData).length);
 
       const cities: City[] = [];
 
@@ -430,11 +345,11 @@ export class IkariamApi {
     }
 
     try {
+      console.log('📍 getCityDetails: Récupération détails ville', cityId);
       const response = await this.request(`/index.php?view=city&cityId=${cityId}`);
       const html = response.data;
 
-      // Parse les ressources
-      const resourcesMatch = html.match(/updateBackgroundData[^{]*({[^}]+})/);
+      // Parse les ressources en utilisant extractJsonFromHtml
       let resources: Resources = {
         wood: 0,
         wine: 0,
@@ -443,21 +358,27 @@ export class IkariamApi {
         sulfur: 0,
       };
 
-      if (resourcesMatch) {
-        try {
-          const resourcesData = JSON.parse(resourcesMatch[1]);
-          resources = {
-            wood: parseInt(resourcesData.wood || '0'),
-            wine: parseInt(resourcesData.wine || '0'),
-            marble: parseInt(resourcesData.marble || '0'),
-            crystal: parseInt(resourcesData.crystal || '0'),
-            sulfur: parseInt(resourcesData.sulfur || '0'),
-            gold: parseInt(resourcesData.gold || '0'),
-            citizens: parseInt(resourcesData.citizens || '0'),
-          };
-        } catch (e) {
-          console.error('Erreur parsing ressources:', e);
-        }
+      const resourcesData = extractJsonFromHtml(html, 'updateBackgroundData');
+      if (resourcesData) {
+        // Fonction helper pour parser les nombres de manière sûre
+        const parseNumber = (val: any): number => {
+          if (typeof val === 'number') return Math.floor(val);
+          const num = parseInt(String(val || '0'), 10);
+          return isNaN(num) ? 0 : num;
+        };
+
+        resources = {
+          wood: parseNumber(resourcesData.wood),
+          wine: parseNumber(resourcesData.wine),
+          marble: parseNumber(resourcesData.marble),
+          crystal: parseNumber(resourcesData.crystal),
+          sulfur: parseNumber(resourcesData.sulfur),
+          gold: parseNumber(resourcesData.gold),
+          citizens: parseNumber(resourcesData.citizens),
+        };
+        console.log('📍 getCityDetails: Ressources parsées:', resources);
+      } else {
+        console.warn('📍 getCityDetails: Impossible de parser les ressources');
       }
 
       // Parse les constructions en cours
@@ -466,19 +387,31 @@ export class IkariamApi {
       );
       const constructionQueue = [];
 
+      // Fonction helper pour parser les nombres de manière sûre
+      const parseNumber = (val: any): number => {
+        if (typeof val === 'number') return Math.floor(val);
+        const num = parseInt(String(val || '0'), 10);
+        return isNaN(num) ? 0 : num;
+      };
+
       for (const match of constructionMatches) {
+        const countdown = parseNumber(match[3]?.trim());
         constructionQueue.push({
-          buildingId: match[2].trim(),
+          buildingId: match[2]?.trim() || '',
           buildingName: '',
           targetLevel: 0,
-          completionTime: Date.now() + parseInt(match[3].trim()) * 1000,
+          completionTime: Date.now() + countdown * 1000,
           currentLevel: 0,
         });
       }
 
+      console.log('📍 getCityDetails: Constructions en cours:', constructionQueue.length);
+
       // Parse le nom de la ville
       const nameMatch = html.match(/cityName[^>]*>([^<]+)</);
       const cityName = nameMatch ? nameMatch[1].trim() : 'Ville';
+
+      console.log('📍 getCityDetails: Nom de ville:', cityName);
 
       return {
         success: true,
