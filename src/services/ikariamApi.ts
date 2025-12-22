@@ -1,4 +1,6 @@
 import axios, { AxiosInstance } from 'axios';
+import { wrapper } from 'axios-cookiejar-support';
+import { CookieJar } from 'tough-cookie';
 import type { IkariamSession, City, Resources, ApiResponse } from '../types';
 import { parseCookies, validateCookies } from '../utils/cookieParser';
 
@@ -9,24 +11,32 @@ import { parseCookies, validateCookies } from '../utils/cookieParser';
 export class IkariamApi {
   private axiosInstance: AxiosInstance;
   private session: IkariamSession | null = null;
+  private cookieJar: CookieJar;
 
   constructor() {
-    this.axiosInstance = axios.create({
-      timeout: 15000,
-      withCredentials: true,
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1',
-        'Sec-Fetch-Dest': 'document',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'none',
-      },
-    });
+    // Créé un jar de cookies
+    this.cookieJar = new CookieJar();
+
+    // Créé l'instance axios avec le wrapper pour le support des cookies
+    this.axiosInstance = wrapper(
+      axios.create({
+        timeout: 15000,
+        jar: this.cookieJar,
+        withCredentials: true,
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+          'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'Connection': 'keep-alive',
+          'Upgrade-Insecure-Requests': '1',
+          'Sec-Fetch-Dest': 'document',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-Site': 'none',
+        },
+      })
+    );
   }
 
   /**
@@ -55,16 +65,27 @@ export class IkariamApi {
 
       this.session = { cookie: parsedCookie, server };
 
-      // Configure l'instance axios avec le cookie
-      this.axiosInstance.defaults.baseURL = `https://${server}.ikariam.gameforge.com`;
-      this.axiosInstance.defaults.headers.common['Cookie'] = parsedCookie;
+      // Configure l'instance axios
+      const baseURL = `https://${server}.ikariam.gameforge.com`;
+      this.axiosInstance.defaults.baseURL = baseURL;
+
+      // Parse et ajoute les cookies au jar
+      const cookiePairs = parsedCookie.split(';').map((c) => c.trim());
+      for (const pair of cookiePairs) {
+        try {
+          this.cookieJar.setCookieSync(pair, baseURL);
+        } catch (error) {
+          console.warn('Failed to set cookie:', pair, error);
+        }
+      }
 
       console.log('Session initialization:', {
         server,
-        baseURL: this.axiosInstance.defaults.baseURL,
+        baseURL,
         cookieLength: parsedCookie.length,
         cookiePreview: parsedCookie.substring(0, 100) + '...',
         hasPHPSESSID: parsedCookie.includes('PHPSESSID'),
+        cookiesInJar: this.cookieJar.getCookiesSync(baseURL).length,
       });
 
       // Vérifie que la session est valide en récupérant les données du joueur
