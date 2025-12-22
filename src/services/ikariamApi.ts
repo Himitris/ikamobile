@@ -15,53 +15,72 @@ function extractJsonFromHtml(html: string, startPattern: string): any | null {
     return null;
   }
 
-  const startIdx = html.indexOf('{', idx);
-  if (startIdx < 0) {
-    console.log(`⚠️ Accolade ouvrante non trouvée après "${startPattern}"`);
-    return null;
+  // Cherche si c'est dans un JSON.parse('...') ou JSON.parse("...")
+  const afterPattern = html.substring(idx + startPattern.length);
+  const parseMatch = afterPattern.match(/^\s*:\s*JSON\.parse\s*\(\s*(['"])([\s\S]+?)\1/);
+  let jsonStr = '';
+
+  if (parseMatch) {
+    // C'est dans un JSON.parse(), extrait la string et décode les échappements
+    jsonStr = parseMatch[2];
+    // Décode les échappements JavaScript dans l'ordre correct
+    jsonStr = jsonStr.replace(/\\\\/g, '\x00'); // Temporaire pour \\
+    jsonStr = jsonStr.replace(/\\"/g, '"');
+    jsonStr = jsonStr.replace(/\\'/g, "'");
+    jsonStr = jsonStr.replace(/\x00/g, '\\'); // Restaure les vrais backslashes
+    console.log(`✅ JSON extrait de JSON.parse() pour "${startPattern}" (${jsonStr.length} chars)`);
   }
 
-  let braceCount = 0;
-  let endIdx = startIdx;
-  let inString = false;
-  let escapeNext = false;
-
-  for (let i = startIdx; i < html.length; i++) {
-    const char = html[i];
-
-    if (escapeNext) {
-      escapeNext = false;
-      continue;
+  // Fallback: extraction directe par comptage d'accolades
+  if (!jsonStr) {
+    const startIdx = html.indexOf('{', idx);
+    if (startIdx < 0) {
+      console.log(`⚠️ Accolade ouvrante non trouvée après "${startPattern}"`);
+      return null;
     }
 
-    if (char === '\\') {
-      escapeNext = true;
-      continue;
-    }
+    let braceCount = 0;
+    let endIdx = startIdx;
+    let inString = false;
+    let escapeNext = false;
 
-    if (char === '"' && !escapeNext) {
-      inString = !inString;
-      continue;
-    }
+    for (let i = startIdx; i < html.length; i++) {
+      const char = html[i];
 
-    if (!inString) {
-      if (char === '{') braceCount++;
-      if (char === '}') braceCount--;
+      if (escapeNext) {
+        escapeNext = false;
+        continue;
+      }
 
-      if (braceCount === 0) {
-        endIdx = i;
-        break;
+      if (char === '\\') {
+        escapeNext = true;
+        continue;
+      }
+
+      if (char === '"' && !escapeNext) {
+        inString = !inString;
+        continue;
+      }
+
+      if (!inString) {
+        if (char === '{') braceCount++;
+        if (char === '}') braceCount--;
+
+        if (braceCount === 0) {
+          endIdx = i;
+          break;
+        }
       }
     }
-  }
 
-  if (braceCount !== 0 || endIdx === startIdx) {
-    console.log(`⚠️ JSON incomplet trouvé pour "${startPattern}"`);
-    return null;
-  }
+    if (braceCount !== 0 || endIdx === startIdx) {
+      console.log(`⚠️ JSON incomplet trouvé pour "${startPattern}"`);
+      return null;
+    }
 
-  const jsonStr = html.substring(startIdx, endIdx + 1);
-  console.log(`✅ JSON extrait pour "${startPattern}" (${jsonStr.length} chars)`);
+    jsonStr = html.substring(startIdx, endIdx + 1);
+    console.log(`✅ JSON extrait par comptage pour "${startPattern}" (${jsonStr.length} chars)`);
+  }
 
   try {
     return JSON.parse(jsonStr);
