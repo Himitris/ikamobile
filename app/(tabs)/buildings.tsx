@@ -28,7 +28,7 @@ export default function BuildingsTab() {
 
   return (
     <View style={styles.container}>
-      <CityDetailScreen cityId={selectedCityId} onBack={handleBack} />
+      <CityDetailScreen key={selectedCityId} cityId={selectedCityId} onBack={handleBack} />
     </View>
   );
 }
