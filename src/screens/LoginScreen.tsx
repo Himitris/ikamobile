@@ -5,7 +5,8 @@ import {
   Alert,
   ScrollView,
 } from 'react-native';
-import { useSession } from '../contexts/SessionContext';
+import { ikariamApi } from '../services/ikariamApi';
+import { storageService } from '../services/storage';
 import { IkariamText, IkariamCard, IkariamButton, IkariamInput } from '@/components/ikariam';
 import { IkariamTheme } from '@/constants/ikariamTheme';
 
@@ -17,7 +18,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
   const [cookie, setCookie] = useState('');
   const [server, setServer] = useState('s67-fr');
   const [loading, setLoading] = useState(false);
-  const { login } = useSession();
 
   const handleLogin = async () => {
     if (!cookie.trim()) {
@@ -33,9 +33,12 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
     setLoading(true);
 
     try {
-      const result = await login(cookie, server);
+      const result = await ikariamApi.initSession(cookie, server);
 
-      if (result.success) {
+      if (result.success && result.data) {
+        // Sauvegarde la session
+        await storageService.saveSession(result.data);
+
         Alert.alert('Succès', 'Connexion réussie !', [
           {
             text: 'OK',
