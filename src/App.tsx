@@ -5,6 +5,7 @@ import { CitiesListScreen } from './screens/CitiesListScreen';
 import { CityDetailScreen } from './screens/CityDetailScreen';
 import { ikariamApi } from './services/ikariamApi';
 import { storageService } from './services/storage';
+import { IkariamTheme } from '@/constants/ikariamTheme';
 
 type Screen = 'loading' | 'login' | 'cities' | 'cityDetail';
 
@@ -40,24 +41,28 @@ export default function App() {
     setCurrentScreen('cities');
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await storageService.clearSession();
+    ikariamApi.logout();
+    setSelectedCityId(null);
     setCurrentScreen('login');
   };
 
   const handleCitySelect = (cityId: string) => {
+    console.log('🏙️ App: Ville sélectionnée:', cityId);
     setSelectedCityId(cityId);
     setCurrentScreen('cityDetail');
   };
 
   const handleBackToCities = () => {
-    setSelectedCityId(null);
+    console.log('🔙 App: Retour à la liste des villes');
     setCurrentScreen('cities');
   };
 
   if (currentScreen === 'loading') {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#3498db" />
+        <ActivityIndicator size="large" color={IkariamTheme.colors.wood.base} />
       </View>
     );
   }
@@ -82,6 +87,6 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f5f5f5',
+    backgroundColor: IkariamTheme.colors.background.primary,
   },
 });

@@ -1,27 +1,15 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import { Stack } from 'expo-router';
+import { View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
 
-import { useColorScheme } from '@/hooks/use-color-scheme';
-import { SessionProvider } from '@/src/contexts/SessionContext';
+import App from '@/src/App';
 
-export const unstable_settings = {
-  anchor: '(tabs)',
-};
-
+// Layout simple : charge directement App.tsx sans tabs
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
-
   return (
-    <SessionProvider>
-      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-        <Stack>
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
-        </Stack>
-        <StatusBar style="auto" />
-      </ThemeProvider>
-    </SessionProvider>
+    <View style={{ flex: 1 }}>
+      <App />
+      <StatusBar style="auto" />
+    </View>
   );
 }
