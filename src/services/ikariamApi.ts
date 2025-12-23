@@ -130,6 +130,13 @@ export class IkariamApi {
         throw new Error(result.error || 'Erreur du proxy');
       }
 
+      // Met à jour les cookies si le serveur en envoie de nouveaux
+      if (result.cookies && this.session) {
+        const newCookies = result.cookies;
+        console.log('🔄 Mise à jour des cookies de session');
+        this.session.cookie = newCookies;
+      }
+
       return {
         data: result.data,
         status: result.status,
