@@ -33,22 +33,24 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
     setLoading(true);
 
     try {
+      console.log('🔐 LoginScreen: Tentative de connexion...');
       const result = await ikariamApi.initSession(cookie, server);
+      console.log('🔐 LoginScreen: Résultat initSession:', result);
 
       if (result.success && result.data) {
         // Sauvegarde la session
         await storageService.saveSession(result.data);
+        console.log('🔐 LoginScreen: Session sauvegardée, navigation...');
 
-        Alert.alert('Succès', 'Connexion réussie !', [
-          {
-            text: 'OK',
-            onPress: onLoginSuccess,
-          },
-        ]);
+        // Navigation directe sans attendre l'alerte
+        if (onLoginSuccess) {
+          onLoginSuccess();
+        }
       } else {
         Alert.alert('Erreur', result.error || 'Échec de la connexion');
       }
     } catch (error: any) {
+      console.error('🔐 LoginScreen: Exception:', error);
       Alert.alert('Erreur', error.message || 'Une erreur est survenue');
     } finally {
       setLoading(false);
