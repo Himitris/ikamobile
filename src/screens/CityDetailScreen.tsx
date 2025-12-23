@@ -121,13 +121,8 @@ export const CityDetailScreen: React.FC<CityDetailScreenProps> = ({ cityId, onBa
   };
 
   const formatNumber = (num: number): string => {
-    if (num >= 1000000) {
-      return (num / 1000000).toFixed(1) + 'M';
-    }
-    if (num >= 1000) {
-      return (num / 1000).toFixed(1) + 'K';
-    }
-    return num.toString();
+    // Affiche le chiffre exact avec séparateur de milliers
+    return num.toLocaleString('fr-FR');
   };
 
   useEffect(() => {
@@ -329,10 +324,7 @@ const BuildingItem: React.FC<{
   };
 
   const formatNumber = (num: number): string => {
-    if (num >= 1000) {
-      return (num / 1000).toFixed(1) + 'K';
-    }
-    return num.toString();
+    return num.toLocaleString('fr-FR');
   };
 
   const formatTime = (seconds: number): string => {
