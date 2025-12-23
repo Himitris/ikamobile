@@ -365,8 +365,17 @@ export class IkariamApi {
 
     try {
       console.log('📍 getCityDetails: Récupération détails ville', cityId);
+
+      // IMPORTANT: Il faut d'abord faire une requête pour changer de ville active
+      // sinon Ikariam retourne toujours les infos de la ville courante
+      console.log('📍 getCityDetails: Changement de ville active vers', cityId);
+      await this.request(`/index.php?view=city&cityId=${cityId}`);
+
+      // Ensuite on récupère les vraies données de la ville
       const response = await this.request(`/index.php?view=city&cityId=${cityId}`);
       const html = response.data;
+
+      console.log(`📍 getCityDetails: HTML reçu pour ${cityId}, taille:`, html.length);
 
       // Fonction helper pour parser les nombres de manière sûre
       const parseNumber = (val: any): number => {
@@ -441,79 +450,135 @@ export class IkariamApi {
       // Parse les bâtiments de la ville
       let buildings: Building[] = [];
       try {
+        console.log('🏗️ Début du parsing des bâtiments...');
+
         // Cherche buildingGround dans le HTML pour les bâtiments
-        const buildingGroundMatch = html.match(/id="buildingGround"[\s\S]*?<\/div>/);
-        if (buildingGroundMatch) {
+        const buildingGroundMatch = html.match(/id="buildingGround"[\s\S]*?<\/ul>/);
+
+        if (!buildingGroundMatch) {
+          console.warn('⚠️ buildingGround non trouvé dans le HTML');
+          // Essaye une approche alternative: cherche toutes les divs avec position\d+
+          const alternativeMatches = html.match(/id="position\d+"/g);
+          console.log('🔍 Positions alternatives trouvées:', alternativeMatches?.length || 0);
+        } else {
           const buildingGroundHtml = buildingGroundMatch[0];
+          console.log('✅ buildingGround trouvé, taille:', buildingGroundHtml.length);
 
           // Parse chaque position de bâtiment (0-17)
           for (let position = 0; position <= 17; position++) {
-            const positionRegex = new RegExp(
-              `position${position}[^>]*class="([^"]*)"[^>]*>([\\s\\S]*?)<\\/div>`
-            );
-            const positionMatch = buildingGroundHtml.match(positionRegex);
+            // Pattern plus flexible pour matcher les positions
+            const positionPatterns = [
+              `id="position${position}"[^>]*class="([^"]*)"`,
+              `position${position}[^>]*class="([^"]*)"`,
+            ];
 
-            if (positionMatch) {
-              const classes = positionMatch[1];
-              const content = positionMatch[2];
+            let positionData = null;
+            let classes = '';
 
-              // Extrait le type de bâtiment depuis la classe
-              const buildingTypeMatch = classes.match(/building(\w+)/);
-              const buildingType = buildingTypeMatch ? buildingTypeMatch[1].toLowerCase() : '';
-
-              // Extrait le niveau
-              const levelMatch = content.match(/buildingLevel(\d+)/);
-              const level = levelMatch ? parseInt(levelMatch[1]) : 0;
-
-              // Extrait le nom du bâtiment
-              const nameMatch = content.match(/buildinginfo[^>]*title="([^"]+)"/);
-              const name = nameMatch ? nameMatch[1].replace(/&nbsp;/g, ' ').trim() : '';
-
-              if (buildingType && level > 0) {
-                // Tente d'extraire les coûts et le temps d'upgrade depuis le HTML
-                // Ces infos sont souvent dans les attributs data- ou dans le contenu
-                let upgradeTime: number | undefined;
-                let upgradeCost: Resources | undefined;
-
-                // Cherche le temps de construction (format: data-constructiontime="3600" en secondes)
-                const timeMatch = content.match(/data-constructiontime="(\d+)"/);
-                if (timeMatch) {
-                  upgradeTime = parseInt(timeMatch[1]);
-                }
-
-                // Cherche les coûts dans les attributs data-costs
-                const costsMatch = content.match(/data-costs="([^"]+)"/);
-                if (costsMatch) {
-                  try {
-                    const costsData = JSON.parse(costsMatch[1].replace(/&quot;/g, '"'));
-                    upgradeCost = {
-                      wood: parseNumber(costsData['1'] || 0),
-                      wine: parseNumber(costsData['2'] || 0),
-                      marble: parseNumber(costsData['3'] || 0),
-                      crystal: parseNumber(costsData['4'] || 0),
-                      sulfur: parseNumber(costsData['5'] || 0),
-                    };
-                  } catch (e) {
-                    console.warn('⚠️ Impossible de parser les coûts pour', buildingType);
-                  }
-                }
-
-                buildings.push({
-                  id: `${position}`,
-                  name: name || buildingType,
-                  level,
-                  position,
-                  type: buildingType as any,
-                  upgradeTime,
-                  upgradeCost,
-                });
+            for (const pattern of positionPatterns) {
+              const regex = new RegExp(pattern);
+              const match = buildingGroundHtml.match(regex);
+              if (match) {
+                classes = match[1];
+                positionData = match;
+                break;
               }
             }
+
+            if (!positionData || !classes) {
+              continue;
+            }
+
+            // Extrait le type de bâtiment depuis la classe
+            const buildingTypeMatch = classes.match(/building(\w+)/);
+            if (!buildingTypeMatch) {
+              continue;
+            }
+
+            const buildingType = buildingTypeMatch[1].toLowerCase();
+
+            // Extrait le niveau depuis la classe (buildingLevel\d+)
+            const levelMatch = classes.match(/level(\d+)/);
+            const level = levelMatch ? parseInt(levelMatch[1]) : 0;
+
+            if (!buildingType || level === 0) {
+              continue;
+            }
+
+            // Pour extraire le nom et les infos d'upgrade, on doit chercher dans une zone plus large
+            // autour de cette position
+            const positionBlockRegex = new RegExp(
+              `id="position${position}"[\\s\\S]{0,2000}?(?=id="position(?:${position + 1}|${position - 1})")|id="position${position}"[\\s\\S]{0,2000}$`
+            );
+            const positionBlock = buildingGroundHtml.match(positionBlockRegex);
+            const content = positionBlock ? positionBlock[0] : '';
+
+            // Extrait le nom du bâtiment depuis le title ou alt
+            let name = buildingType;
+            const namePatterns = [
+              /title="([^"]+)"/,
+              /alt="([^"]+)"/,
+              /data-name="([^"]+)"/,
+            ];
+
+            for (const pattern of namePatterns) {
+              const match = content.match(pattern);
+              if (match) {
+                name = match[1].replace(/&nbsp;/g, ' ').replace(/&#039;/g, "'").trim();
+                // Nettoie le nom si c'est quelque chose comme "Hôtel de ville (Niveau 7)"
+                name = name.replace(/\s*\([^)]*\)\s*/g, '').trim();
+                break;
+              }
+            }
+
+            // Tente d'extraire les coûts et le temps d'upgrade depuis le HTML
+            let upgradeTime: number | undefined;
+            let upgradeCost: Resources | undefined;
+
+            // Cherche le temps de construction (format: data-constructiontime="3600" en secondes)
+            const timeMatch = content.match(/(?:data-constructiontime|upgradeTime)="(\d+)"/);
+            if (timeMatch) {
+              upgradeTime = parseInt(timeMatch[1]);
+            }
+
+            // Cherche les coûts dans les attributs data-costs
+            const costsMatch = content.match(/(?:data-costs|costs)="([^"]+)"/);
+            if (costsMatch) {
+              try {
+                const costsStr = costsMatch[1].replace(/&quot;/g, '"').replace(/&#039;/g, "'");
+                const costsData = JSON.parse(costsStr);
+                upgradeCost = {
+                  wood: parseNumber(costsData['1'] || costsData.wood || 0),
+                  wine: parseNumber(costsData['2'] || costsData.wine || 0),
+                  marble: parseNumber(costsData['3'] || costsData.marble || 0),
+                  crystal: parseNumber(costsData['4'] || costsData.crystal || 0),
+                  sulfur: parseNumber(costsData['5'] || costsData.sulfur || 0),
+                };
+              } catch (e) {
+                console.warn(`⚠️ Impossible de parser les coûts pour ${buildingType} position ${position}`);
+              }
+            }
+
+            console.log(`✅ Bâtiment trouvé: ${buildingType} (${name}) niveau ${level} à position ${position}`);
+
+            buildings.push({
+              id: `${position}`,
+              name,
+              level,
+              position,
+              type: buildingType as any,
+              upgradeTime,
+              upgradeCost,
+            });
           }
-          console.log('📍 getCityDetails: Bâtiments trouvés:', buildings.length);
+        }
+
+        console.log(`📍 getCityDetails: Total bâtiments trouvés: ${buildings.length}`);
+        if (buildings.length > 0) {
+          console.log('📍 Bâtiments:', buildings.map(b => `${b.name} (niv ${b.level})`).join(', '));
         }
       } catch (error) {
-        console.error('⚠️ getCityDetails: Erreur parsing bâtiments:', error);
+        console.error('❌ getCityDetails: Erreur parsing bâtiments:', error);
       }
 
       // Parse les constructions en cours

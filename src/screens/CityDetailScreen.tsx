@@ -24,7 +24,6 @@ export const CityDetailScreen: React.FC<CityDetailScreenProps> = ({ cityId, onBa
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [buildingSortBy, setBuildingSortBy] = useState<'level' | 'type' | 'name'>('level');
 
   const loadCityDetails = async () => {
     try {
@@ -34,6 +33,7 @@ export const CityDetailScreen: React.FC<CityDetailScreenProps> = ({ cityId, onBa
       if (result.success && result.data) {
         console.log('🏛️ CityDetailScreen: Détails chargés:', result.data.name);
         console.log('🏛️ CityDetailScreen: Ressources:', result.data.resources);
+        console.log('🏛️ CityDetailScreen: Bâtiments:', result.data.buildings?.length || 0);
         setCity(result.data);
         setError(null);
       } else {
@@ -70,7 +70,7 @@ export const CityDetailScreen: React.FC<CityDetailScreenProps> = ({ cityId, onBa
       : true;
 
     // Construit le message avec le coût
-    let message = `Voulez-vous améliorer ${building.name} au niveau ${building.level + 1} ?`;
+    let message = `Niveau ${building.level} → ${building.level + 1}`;
 
     if (building.upgradeCost) {
       const costs = [];
@@ -92,23 +92,22 @@ export const CityDetailScreen: React.FC<CityDetailScreenProps> = ({ cityId, onBa
     }
 
     if (!hasEnoughResources) {
-      message += '\n\n⚠️ Vous n\'avez pas assez de ressources !';
+      message += '\n\n⚠️ Ressources insuffisantes';
     }
 
     Alert.alert(
-      `Améliorer ${building.name}`,
+      building.name,
       message,
       [
         { text: 'Annuler', style: 'cancel' },
         {
-          text: hasEnoughResources ? 'Améliorer' : 'Améliorer quand même',
-          style: hasEnoughResources ? 'default' : 'destructive',
+          text: 'Améliorer',
           onPress: async () => {
             try {
               const result = await ikariamApi.startConstruction(cityId, building.position.toString());
               if (result.success) {
                 Alert.alert('Succès', 'Construction lancée !');
-                loadCityDetails(); // Recharge les données
+                loadCityDetails();
               } else {
                 Alert.alert('Erreur', result.error || 'Impossible de lancer la construction');
               }
@@ -121,33 +120,14 @@ export const CityDetailScreen: React.FC<CityDetailScreenProps> = ({ cityId, onBa
     );
   };
 
-  const sortBuildings = (buildings: Building[]): Building[] => {
-    const sorted = [...buildings];
-    switch (buildingSortBy) {
-      case 'level':
-        return sorted.sort((a, b) => b.level - a.level);
-      case 'name':
-        return sorted.sort((a, b) => a.name.localeCompare(b.name));
-      case 'type':
-        return sorted.sort((a, b) => a.type.localeCompare(b.type));
-      default:
-        return sorted;
-    }
-  };
-
   const formatNumber = (num: number): string => {
-    return num.toLocaleString('fr-FR');
-  };
-
-  const formatTime = (timestamp: number): string => {
-    const remaining = timestamp - Date.now();
-    if (remaining <= 0) return 'Terminé';
-
-    const hours = Math.floor(remaining / (1000 * 60 * 60));
-    const minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
-    const seconds = Math.floor((remaining % (1000 * 60)) / 1000);
-
-    return `${hours}h ${minutes}m ${seconds}s`;
+    if (num >= 1000000) {
+      return (num / 1000000).toFixed(1) + 'M';
+    }
+    if (num >= 1000) {
+      return (num / 1000).toFixed(1) + 'K';
+    }
+    return num.toString();
   };
 
   useEffect(() => {
@@ -158,9 +138,6 @@ export const CityDetailScreen: React.FC<CityDetailScreenProps> = ({ cityId, onBa
     return (
       <View style={styles.centerContainer}>
         <ActivityIndicator size="large" color={IkariamTheme.colors.wood.base} />
-        <IkariamText variant="body" color="secondary" style={styles.loadingText}>
-          Chargement...
-        </IkariamText>
       </View>
     );
   }
@@ -168,35 +145,51 @@ export const CityDetailScreen: React.FC<CityDetailScreenProps> = ({ cityId, onBa
   if (!city) {
     return (
       <View style={styles.centerContainer}>
-        <IkariamText variant="body" style={styles.errorText}>
-          Ville non trouvée
-        </IkariamText>
-        <IkariamButton
-          title="Retour"
-          onPress={onBack}
-          variant="secondary"
-          size="md"
-        />
+        <IkariamText variant="body">Ville non trouvée</IkariamText>
+        <IkariamButton title="Retour" onPress={onBack} variant="secondary" size="md" />
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
+      {/* Header avec nom de ville et retour */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={onBack} style={styles.backIconButton}>
-          <IkariamText variant="heading" color="light" style={styles.backIcon}>
+        <TouchableOpacity onPress={onBack} style={styles.backButton}>
+          <IkariamText variant="body" color="light" style={styles.backIcon}>
             ←
           </IkariamText>
         </TouchableOpacity>
-        <IkariamText variant="heading" color="light" style={styles.title}>
+        <IkariamText variant="heading" color="light" style={styles.cityName}>
           {city.name}
         </IkariamText>
-        <View style={{ width: 40 }} />
+        <IkariamText variant="caption" color="light" style={styles.coords}>
+          [{city.x}:{city.y}]
+        </IkariamText>
       </View>
 
+      {/* Barre de ressources (compacte en haut) */}
+      <View style={styles.resourcesBar}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.resourcesScroll}>
+          <View style={styles.resourcesList}>
+            <ResourceBadge icon="🪵" value={formatNumber(city.resources.wood)} />
+            <ResourceBadge icon="🍷" value={formatNumber(city.resources.wine)} />
+            <ResourceBadge icon="⚪" value={formatNumber(city.resources.marble)} />
+            <ResourceBadge icon="💎" value={formatNumber(city.resources.crystal)} />
+            <ResourceBadge icon="⚠️" value={formatNumber(city.resources.sulfur)} />
+            {city.resources.gold !== undefined && (
+              <ResourceBadge icon="💰" value={formatNumber(city.resources.gold)} highlight />
+            )}
+            {city.resources.citizens !== undefined && (
+              <ResourceBadge icon="👥" value={formatNumber(city.resources.citizens)} />
+            )}
+          </View>
+        </ScrollView>
+      </View>
+
+      {/* Liste des bâtiments */}
       <ScrollView
-        style={styles.content}
+        style={styles.buildingsList}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -206,186 +199,55 @@ export const CityDetailScreen: React.FC<CityDetailScreenProps> = ({ cityId, onBa
           />
         }
       >
-        {/* Avertissement si toutes les ressources sont à 0 */}
-        {city.resources &&
-          Object.values(city.resources).every((val) => val === 0 || val === undefined) && (
-            <IkariamCard variant="default" style={styles.warningBanner}>
-              <IkariamText variant="caption" color="secondary" style={styles.warningText}>
-                ⚠️ Les ressources n'ont pas pu être chargées. Consultez les logs de la console
-                pour plus de détails.
-              </IkariamText>
-            </IkariamCard>
-          )}
-
-        {/* Ressources */}
-        <IkariamCard style={styles.section}>
-          <IkariamText variant="subheading" style={styles.sectionTitle}>
-            Ressources
-          </IkariamText>
-          <View style={styles.resourcesGrid}>
-            <ResourceItem
-              icon="🪵"
-              name="Bois"
-              value={formatNumber(city.resources.wood)}
-              color={IkariamTheme.colors.resources.wood}
-            />
-            <ResourceItem
-              icon="🍷"
-              name="Vin"
-              value={formatNumber(city.resources.wine)}
-              color={IkariamTheme.colors.resources.wine}
-            />
-            <ResourceItem
-              icon="⚪"
-              name="Marbre"
-              value={formatNumber(city.resources.marble)}
-              color={IkariamTheme.colors.resources.marble}
-            />
-            <ResourceItem
-              icon="💎"
-              name="Cristal"
-              value={formatNumber(city.resources.crystal)}
-              color={IkariamTheme.colors.resources.crystal}
-            />
-            <ResourceItem
-              icon="⚠️"
-              name="Soufre"
-              value={formatNumber(city.resources.sulfur)}
-              color={IkariamTheme.colors.resources.sulfur}
-            />
-            {city.resources.gold !== undefined && (
-              <ResourceItem
-                icon="💰"
-                name="Or"
-                value={formatNumber(city.resources.gold)}
-                color={IkariamTheme.colors.resources.gold}
-              />
-            )}
-          </View>
-        </IkariamCard>
-
-        {/* Citoyens */}
-        {city.resources.citizens !== undefined && (
-          <IkariamCard style={styles.section}>
-            <IkariamText variant="subheading" style={styles.sectionTitle}>
-              Population
-            </IkariamText>
-            <View style={styles.statsRow}>
-              <IkariamText variant="caption" color="secondary">
-                Citoyens disponibles :
-              </IkariamText>
-              <IkariamText variant="body" weight="bold">
-                {formatNumber(city.resources.citizens)}
-              </IkariamText>
-            </View>
-            {city.resources.scientistsAvailable !== undefined && (
-              <View style={styles.statsRow}>
-                <IkariamText variant="caption" color="secondary">
-                  Scientifiques disponibles :
-                </IkariamText>
-                <IkariamText variant="body" weight="bold">
-                  {formatNumber(city.resources.scientistsAvailable)}
-                </IkariamText>
-              </View>
-            )}
-          </IkariamCard>
-        )}
-
         {/* Constructions en cours */}
         {city.constructionQueue && city.constructionQueue.length > 0 && (
-          <IkariamCard style={styles.section}>
-            <IkariamText variant="subheading" style={styles.sectionTitle}>
-              Constructions en cours
+          <View style={styles.queueSection}>
+            <IkariamText variant="caption" color="secondary" style={styles.queueTitle}>
+              🔨 Constructions en cours ({city.constructionQueue.length})
             </IkariamText>
             {city.constructionQueue.map((construction, index) => (
               <ConstructionItem key={index} construction={construction} />
             ))}
-          </IkariamCard>
-        )}
-
-        {city.constructionQueue?.length === 0 && (
-          <IkariamCard style={styles.section}>
-            <IkariamText variant="subheading" style={styles.sectionTitle}>
-              Constructions
-            </IkariamText>
-            <IkariamText variant="caption" color="secondary" style={styles.emptyText}>
-              Aucune construction en cours
-            </IkariamText>
-          </IkariamCard>
+          </View>
         )}
 
         {/* Bâtiments */}
-        {city.buildings && city.buildings.length > 0 && (
-          <IkariamCard style={styles.section}>
-            <View style={styles.buildingHeader}>
-              <IkariamText variant="subheading" style={styles.sectionTitle}>
-                Bâtiments ({city.buildings.length})
-              </IkariamText>
-              <View style={styles.sortButtons}>
-                <TouchableOpacity
-                  style={[styles.sortButton, buildingSortBy === 'level' && styles.sortButtonActive]}
-                  onPress={() => setBuildingSortBy('level')}
-                >
-                  <IkariamText
-                    variant="caption"
-                    color={buildingSortBy === 'level' ? 'light' : 'secondary'}
-                  >
-                    Niveau
-                  </IkariamText>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.sortButton, buildingSortBy === 'name' && styles.sortButtonActive]}
-                  onPress={() => setBuildingSortBy('name')}
-                >
-                  <IkariamText
-                    variant="caption"
-                    color={buildingSortBy === 'name' ? 'light' : 'secondary'}
-                  >
-                    Nom
-                  </IkariamText>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.sortButton, buildingSortBy === 'type' && styles.sortButtonActive]}
-                  onPress={() => setBuildingSortBy('type')}
-                >
-                  <IkariamText
-                    variant="caption"
-                    color={buildingSortBy === 'type' ? 'light' : 'secondary'}
-                  >
-                    Type
-                  </IkariamText>
-                </TouchableOpacity>
-              </View>
-            </View>
-            {sortBuildings(city.buildings).map((building) => (
+        {city.buildings && city.buildings.length > 0 ? (
+          city.buildings
+            .sort((a, b) => b.level - a.level)
+            .map((building) => (
               <BuildingItem
                 key={building.id}
                 building={building}
                 currentResources={city.resources}
                 onUpgrade={() => handleBuildingUpgrade(building)}
               />
-            ))}
-          </IkariamCard>
+            ))
+        ) : (
+          <View style={styles.emptyState}>
+            <IkariamText variant="caption" color="secondary">
+              Aucun bâtiment trouvé
+            </IkariamText>
+            <IkariamText variant="caption" color="secondary" style={styles.emptyHint}>
+              Consultez les logs pour plus d'informations
+            </IkariamText>
+          </View>
         )}
       </ScrollView>
     </View>
   );
 };
 
-const ResourceItem: React.FC<{
-  icon: string;
-  name: string;
-  value: string;
-  color: string;
-}> = ({ icon, name, value, color }) => (
-  <View style={styles.resourceItem}>
-    <IkariamText variant="body" style={styles.resourceIcon}>
+const ResourceBadge: React.FC<{ icon: string; value: string; highlight?: boolean }> = ({
+  icon,
+  value,
+  highlight = false,
+}) => (
+  <View style={[styles.resourceBadge, highlight && styles.resourceBadgeHighlight]}>
+    <IkariamText variant="caption" style={styles.resourceIcon}>
       {icon}
     </IkariamText>
-    <IkariamText variant="caption" color="secondary" style={styles.resourceName}>
-      {name}
-    </IkariamText>
-    <IkariamText variant="body" weight="bold" style={[styles.resourceValue, { color }]}>
+    <IkariamText variant="caption" weight="semibold" style={styles.resourceValue}>
       {value}
     </IkariamText>
   </View>
@@ -412,16 +274,18 @@ const ConstructionItem: React.FC<{ construction: Construction }> = ({ constructi
   }, [construction.completionTime]);
 
   return (
-    <View style={styles.constructionItem}>
-      <View style={styles.constructionInfo}>
-        <IkariamText variant="body" weight="semibold">
-          {construction.buildingName || 'Bâtiment inconnu'}
+    <View style={styles.queueItem}>
+      <View style={styles.queueInfo}>
+        <IkariamText variant="caption" weight="semibold">
+          {construction.buildingName}
         </IkariamText>
-        <IkariamText variant="caption" color="secondary">
-          Niveau {construction.currentLevel} → {construction.targetLevel}
+        <IkariamText variant="caption" color="secondary" style={styles.queueLevel}>
+          Niv. {construction.currentLevel} → {construction.targetLevel}
         </IkariamText>
       </View>
-      <IkariamBadge label={timeRemaining} variant="info" size="sm" />
+      <IkariamText variant="caption" color="primary" style={styles.queueTime}>
+        ⏱ {timeRemaining}
+      </IkariamText>
     </View>
   );
 };
@@ -431,10 +295,8 @@ const BuildingItem: React.FC<{
   currentResources: Resources;
   onUpgrade: () => void;
 }> = ({ building, currentResources, onUpgrade }) => {
-  // Récupère le nom localisé du bâtiment
-  const buildingName = BUILDING_NAMES[building.type] || building.name || 'Bâtiment inconnu';
+  const buildingName = BUILDING_NAMES[building.type] || building.name || building.type;
 
-  // Vérifie si on a assez de ressources
   const hasEnoughResources = building.upgradeCost
     ? Object.entries(building.upgradeCost).every(([resource, cost]) => {
         const currentAmount = currentResources[resource as keyof typeof currentResources] || 0;
@@ -442,14 +304,13 @@ const BuildingItem: React.FC<{
       })
     : true;
 
-  // Icônes pour différents types de bâtiments
   const getBuildingIcon = (type: string): string => {
     const icons: Record<string, string> = {
       townhall: '🏛️',
       academy: '📚',
       warehouse: '📦',
       palace: '👑',
-      museum: '🏛️',
+      museum: '🏺',
       port: '⚓',
       shipyard: '🚢',
       barracks: '⚔️',
@@ -468,114 +329,116 @@ const BuildingItem: React.FC<{
   };
 
   const formatNumber = (num: number): string => {
-    return num.toLocaleString('fr-FR');
+    if (num >= 1000) {
+      return (num / 1000).toFixed(1) + 'K';
+    }
+    return num.toString();
   };
 
   const formatTime = (seconds: number): string => {
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
-    return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+    return hours > 0 ? `${hours}h${minutes}m` : `${minutes}m`;
   };
 
   return (
-    <View style={styles.buildingItemContainer}>
-      <View style={styles.buildingItem}>
-        <View style={styles.buildingMainInfo}>
-          <View style={styles.buildingHeaderRow}>
-            <IkariamText variant="body" style={styles.buildingIconText}>
-              {getBuildingIcon(building.type)}
-            </IkariamText>
-            <IkariamText variant="body" weight="semibold" style={styles.buildingNameText}>
+    <View style={styles.buildingCard}>
+      <View style={styles.buildingHeader}>
+        <View style={styles.buildingTitleRow}>
+          <IkariamText variant="body" style={styles.buildingIcon}>
+            {getBuildingIcon(building.type)}
+          </IkariamText>
+          <View style={styles.buildingInfo}>
+            <IkariamText variant="body" weight="semibold">
               {buildingName}
             </IkariamText>
-            <IkariamBadge label={`Niv. ${building.level}`} variant="default" size="sm" />
+            <IkariamText variant="caption" color="secondary">
+              Niveau {building.level}
+            </IkariamText>
           </View>
+        </View>
+        <TouchableOpacity
+          style={[
+            styles.upgradeButtonCompact,
+            !hasEnoughResources && styles.upgradeButtonDisabled,
+          ]}
+          onPress={onUpgrade}
+        >
+          <IkariamText variant="caption" color="light" weight="semibold">
+            ⬆
+          </IkariamText>
+        </TouchableOpacity>
+      </View>
 
-          {/* Coût d'upgrade */}
+      {/* Coûts et temps (affichés si disponibles) */}
+      {(building.upgradeCost || building.upgradeTime) && (
+        <View style={styles.buildingDetails}>
           {building.upgradeCost && (
-            <View style={styles.upgradeCostRow}>
-              <IkariamText variant="caption" color="secondary" style={styles.costLabel}>
-                Coût:
-              </IkariamText>
-              <View style={styles.costList}>
-                {building.upgradeCost.wood > 0 && (
-                  <IkariamText
-                    variant="caption"
-                    color={
-                      currentResources.wood >= building.upgradeCost.wood ? 'primary' : 'tertiary'
-                    }
-                  >
-                    🪵 {formatNumber(building.upgradeCost.wood)}
-                  </IkariamText>
-                )}
-                {building.upgradeCost.wine > 0 && (
-                  <IkariamText
-                    variant="caption"
-                    color={
-                      currentResources.wine >= building.upgradeCost.wine ? 'primary' : 'tertiary'
-                    }
-                  >
-                    🍷 {formatNumber(building.upgradeCost.wine)}
-                  </IkariamText>
-                )}
-                {building.upgradeCost.marble > 0 && (
-                  <IkariamText
-                    variant="caption"
-                    color={
-                      currentResources.marble >= building.upgradeCost.marble
-                        ? 'primary'
-                        : 'tertiary'
-                    }
-                  >
-                    ⚪ {formatNumber(building.upgradeCost.marble)}
-                  </IkariamText>
-                )}
-                {building.upgradeCost.crystal > 0 && (
-                  <IkariamText
-                    variant="caption"
-                    color={
-                      currentResources.crystal >= building.upgradeCost.crystal
-                        ? 'primary'
-                        : 'tertiary'
-                    }
-                  >
-                    💎 {formatNumber(building.upgradeCost.crystal)}
-                  </IkariamText>
-                )}
-                {building.upgradeCost.sulfur > 0 && (
-                  <IkariamText
-                    variant="caption"
-                    color={
-                      currentResources.sulfur >= building.upgradeCost.sulfur
-                        ? 'primary'
-                        : 'tertiary'
-                    }
-                  >
-                    ⚠️ {formatNumber(building.upgradeCost.sulfur)}
-                  </IkariamText>
-                )}
-              </View>
+            <View style={styles.costsRow}>
+              {building.upgradeCost.wood > 0 && (
+                <IkariamText
+                  variant="caption"
+                  style={[
+                    styles.costItem,
+                    currentResources.wood < building.upgradeCost.wood && styles.costInsufficient,
+                  ]}
+                >
+                  🪵 {formatNumber(building.upgradeCost.wood)}
+                </IkariamText>
+              )}
+              {building.upgradeCost.wine > 0 && (
+                <IkariamText
+                  variant="caption"
+                  style={[
+                    styles.costItem,
+                    currentResources.wine < building.upgradeCost.wine && styles.costInsufficient,
+                  ]}
+                >
+                  🍷 {formatNumber(building.upgradeCost.wine)}
+                </IkariamText>
+              )}
+              {building.upgradeCost.marble > 0 && (
+                <IkariamText
+                  variant="caption"
+                  style={[
+                    styles.costItem,
+                    currentResources.marble < building.upgradeCost.marble && styles.costInsufficient,
+                  ]}
+                >
+                  ⚪ {formatNumber(building.upgradeCost.marble)}
+                </IkariamText>
+              )}
+              {building.upgradeCost.crystal > 0 && (
+                <IkariamText
+                  variant="caption"
+                  style={[
+                    styles.costItem,
+                    currentResources.crystal < building.upgradeCost.crystal && styles.costInsufficient,
+                  ]}
+                >
+                  💎 {formatNumber(building.upgradeCost.crystal)}
+                </IkariamText>
+              )}
+              {building.upgradeCost.sulfur > 0 && (
+                <IkariamText
+                  variant="caption"
+                  style={[
+                    styles.costItem,
+                    currentResources.sulfur < building.upgradeCost.sulfur && styles.costInsufficient,
+                  ]}
+                >
+                  ⚠️ {formatNumber(building.upgradeCost.sulfur)}
+                </IkariamText>
+              )}
             </View>
           )}
-
-          {/* Temps d'upgrade */}
           {building.upgradeTime && (
-            <View style={styles.upgradeTimeRow}>
-              <IkariamText variant="caption" color="secondary">
-                ⏱️ Temps: {formatTime(building.upgradeTime)}
-              </IkariamText>
-            </View>
+            <IkariamText variant="caption" color="secondary" style={styles.timeText}>
+              ⏱ {formatTime(building.upgradeTime)}
+            </IkariamText>
           )}
         </View>
-
-        <IkariamButton
-          title="⬆"
-          onPress={onUpgrade}
-          variant={hasEnoughResources ? 'success' : 'warning'}
-          size="sm"
-          style={styles.upgradeButton}
-        />
-      </View>
+      )}
     </View>
   );
 };
@@ -593,175 +456,161 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: IkariamTheme.colors.wood.dark,
-    padding: IkariamTheme.spacing.lg,
-    paddingTop: IkariamTheme.spacing['5xl'],
+    paddingHorizontal: IkariamTheme.spacing.base,
+    paddingTop: IkariamTheme.spacing['4xl'],
+    paddingBottom: IkariamTheme.spacing.base,
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    borderBottomWidth: 3,
+    borderBottomWidth: 2,
     borderBottomColor: IkariamTheme.colors.wood.darkest,
-    ...IkariamTheme.shadows.lg,
   },
-  backIconButton: {
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
+  backButton: {
+    padding: IkariamTheme.spacing.sm,
+    marginRight: IkariamTheme.spacing.sm,
   },
   backIcon: {
-    textAlign: 'center',
+    fontSize: 24,
   },
-  title: {
-    flex: 1,
-    textAlign: 'center',
-  },
-  loadingText: {
-    marginTop: IkariamTheme.spacing.md,
-  },
-  errorText: {
-    marginBottom: IkariamTheme.spacing.lg,
-    color: IkariamTheme.colors.error,
-  },
-  content: {
+  cityName: {
     flex: 1,
   },
-  warningBanner: {
-    margin: IkariamTheme.spacing.base,
-    marginBottom: 0,
-    backgroundColor: IkariamTheme.colors.gold.light,
-    borderColor: IkariamTheme.colors.gold.dark,
-    borderLeftWidth: 4,
+  coords: {
+    opacity: 0.8,
   },
-  warningText: {
-    lineHeight: IkariamTheme.typography.fontSize.sm * IkariamTheme.typography.lineHeight.normal,
+  resourcesBar: {
+    backgroundColor: IkariamTheme.colors.parchment.dark,
+    borderBottomWidth: 1,
+    borderBottomColor: IkariamTheme.colors.border.base,
+    paddingVertical: IkariamTheme.spacing.xs,
   },
-  section: {
-    margin: IkariamTheme.spacing.base,
+  resourcesScroll: {
+    flexGrow: 0,
   },
-  sectionTitle: {
-    marginBottom: IkariamTheme.spacing.base,
-  },
-  resourcesGrid: {
+  resourcesList: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
+    paddingHorizontal: IkariamTheme.spacing.sm,
+    gap: IkariamTheme.spacing.sm,
   },
-  resourceItem: {
-    width: '48%',
+  resourceBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: IkariamTheme.colors.parchment.base,
-    padding: IkariamTheme.spacing.md,
-    borderRadius: IkariamTheme.borderRadius.base,
+    paddingHorizontal: IkariamTheme.spacing.sm,
+    paddingVertical: IkariamTheme.spacing.xs,
+    borderRadius: IkariamTheme.borderRadius.sm,
     borderWidth: 1,
     borderColor: IkariamTheme.colors.border.light,
-    marginBottom: IkariamTheme.spacing.md,
-    alignItems: 'center',
-    ...IkariamTheme.shadows.sm,
+    gap: 4,
+  },
+  resourceBadgeHighlight: {
+    backgroundColor: IkariamTheme.colors.gold.light,
+    borderColor: IkariamTheme.colors.gold.base,
   },
   resourceIcon: {
-    marginBottom: IkariamTheme.spacing.xs,
+    fontSize: 14,
   },
-  resourceName: {
-    marginBottom: IkariamTheme.spacing.xs,
+  resourceValue: {
+    fontSize: 12,
   },
-  resourceValue: {},
-  statsRow: {
+  buildingsList: {
+    flex: 1,
+    padding: IkariamTheme.spacing.base,
+  },
+  queueSection: {
+    marginBottom: IkariamTheme.spacing.base,
+    padding: IkariamTheme.spacing.base,
+    backgroundColor: IkariamTheme.colors.blue.light + '20',
+    borderRadius: IkariamTheme.borderRadius.base,
+    borderLeftWidth: 3,
+    borderLeftColor: IkariamTheme.colors.blue.base,
+  },
+  queueTitle: {
+    marginBottom: IkariamTheme.spacing.sm,
+  },
+  queueItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: IkariamTheme.spacing.sm,
+    alignItems: 'center',
+    paddingVertical: IkariamTheme.spacing.xs,
     borderBottomWidth: 1,
     borderBottomColor: IkariamTheme.colors.border.light,
   },
-  constructionItem: {
-    backgroundColor: IkariamTheme.colors.parchment.base,
-    padding: IkariamTheme.spacing.md,
+  queueInfo: {
+    flex: 1,
+  },
+  queueLevel: {
+    marginTop: 2,
+  },
+  queueTime: {
+    marginLeft: IkariamTheme.spacing.sm,
+  },
+  buildingCard: {
+    backgroundColor: IkariamTheme.colors.parchment.light,
     borderRadius: IkariamTheme.borderRadius.base,
     borderWidth: 1,
     borderColor: IkariamTheme.colors.border.base,
-    marginBottom: IkariamTheme.spacing.md,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    padding: IkariamTheme.spacing.base,
+    marginBottom: IkariamTheme.spacing.sm,
     ...IkariamTheme.shadows.sm,
-  },
-  constructionInfo: {
-    flex: 1,
-    marginRight: IkariamTheme.spacing.md,
-  },
-  emptyText: {
-    textAlign: 'center',
-    marginBottom: IkariamTheme.spacing.base,
   },
   buildingHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: IkariamTheme.spacing.md,
   },
-  sortButtons: {
+  buildingTitleRow: {
     flexDirection: 'row',
-    gap: IkariamTheme.spacing.xs,
+    alignItems: 'center',
+    flex: 1,
+    gap: IkariamTheme.spacing.sm,
   },
-  sortButton: {
-    paddingHorizontal: IkariamTheme.spacing.sm,
-    paddingVertical: IkariamTheme.spacing.xs,
-    borderRadius: IkariamTheme.borderRadius.sm,
-    backgroundColor: IkariamTheme.colors.parchment.dark,
-    borderWidth: 1,
-    borderColor: IkariamTheme.colors.border.light,
+  buildingIcon: {
+    fontSize: 24,
   },
-  sortButtonActive: {
+  buildingInfo: {
+    flex: 1,
+  },
+  upgradeButtonCompact: {
+    width: 36,
+    height: 36,
     backgroundColor: IkariamTheme.colors.wood.base,
-    borderColor: IkariamTheme.colors.wood.dark,
-  },
-  buildingItemContainer: {
-    marginBottom: IkariamTheme.spacing.md,
-  },
-  buildingItem: {
-    backgroundColor: IkariamTheme.colors.parchment.base,
-    padding: IkariamTheme.spacing.md,
-    borderRadius: IkariamTheme.borderRadius.base,
-    borderWidth: 1,
-    borderColor: IkariamTheme.colors.border.base,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    borderRadius: IkariamTheme.borderRadius.sm,
+    justifyContent: 'center',
     alignItems: 'center',
     ...IkariamTheme.shadows.sm,
   },
-  buildingMainInfo: {
-    flex: 1,
-    marginRight: IkariamTheme.spacing.md,
+  upgradeButtonDisabled: {
+    backgroundColor: IkariamTheme.colors.wood.light,
+    opacity: 0.5,
   },
-  buildingHeaderRow: {
+  buildingDetails: {
+    marginTop: IkariamTheme.spacing.sm,
+    paddingTop: IkariamTheme.spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: IkariamTheme.colors.border.light,
+  },
+  costsRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: IkariamTheme.spacing.sm,
     marginBottom: IkariamTheme.spacing.xs,
-    gap: IkariamTheme.spacing.sm,
   },
-  buildingIconText: {
-    fontSize: 20,
+  costItem: {
+    fontSize: 12,
   },
-  buildingNameText: {
-    flex: 1,
+  costInsufficient: {
+    color: IkariamTheme.colors.error,
+    opacity: 0.7,
   },
-  upgradeCostRow: {
-    flexDirection: 'row',
+  timeText: {
+    fontSize: 11,
+  },
+  emptyState: {
     alignItems: 'center',
+    padding: IkariamTheme.spacing.xl,
+  },
+  emptyHint: {
     marginTop: IkariamTheme.spacing.xs,
-    flexWrap: 'wrap',
-  },
-  costLabel: {
-    marginRight: IkariamTheme.spacing.sm,
-  },
-  costList: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: IkariamTheme.spacing.sm,
-  },
-  upgradeTimeRow: {
-    marginTop: IkariamTheme.spacing.xs,
-  },
-  upgradeButton: {
-    minWidth: 50,
-    paddingHorizontal: IkariamTheme.spacing.md,
+    fontStyle: 'italic',
   },
 });
