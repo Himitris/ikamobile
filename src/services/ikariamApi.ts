@@ -832,29 +832,50 @@ export class IkariamApi {
       const numericCityId = cityId.replace('city_', '');
       console.log(`💰 getBuildingUpgradeCost: cityId=${numericCityId}, position=${position}, type=${buildingType}`);
 
-      // Récupère d'abord le token CSRF et la page de la ville
+      // Récupère d'abord le token CSRF depuis la page de la ville
       const cityResponse = await this.request(`/index.php?view=city&cityId=${numericCityId}`);
       const actionRequestMatch = cityResponse.data.match(/actionRequest[^'"]*['"]([^'"]+)/);
 
       if (!actionRequestMatch) {
+        console.error('💰 Token CSRF non trouvé');
         return { success: false, error: 'Token CSRF non trouvé' };
       }
 
       const actionRequest = actionRequestMatch[1];
+      console.log('💰 Token CSRF:', actionRequest);
 
-      // Requête pour obtenir les détails du bâtiment avec les coûts
-      // Format basé sur Ikabot: view=buildingDetail&buildingId=X&helpId=Y&position=Z
-      const detailResponse = await this.request(
-        `/index.php?view=buildingDetail&cityId=${numericCityId}&position=${position}&actionRequest=${actionRequest}&ajax=1`
+      // Étape 1: Requête pour obtenir le détail du bâtiment (comme Ikabot)
+      // Format: view=buildingDetail&buildingId=0&helpId=1&backgroundView=city&currentCityId=X&templateView=ikipedia&actionRequest=Y&ajax=1
+      const detailUrl = `/index.php?view=buildingDetail&buildingId=0&helpId=1&backgroundView=city&currentCityId=${numericCityId}&templateView=ikipedia&actionRequest=${actionRequest}&ajax=1`;
+      console.log('💰 URL détail:', detailUrl);
+
+      const detailResponse = await this.request(detailUrl);
+      const detailHtml = detailResponse.data;
+      console.log('💰 Réponse détail (200 chars):', detailHtml.substring(0, 200));
+
+      // Cherche le bouton du bâtiment spécifique pour obtenir l'URL des coûts
+      const buildingButtonPattern = new RegExp(
+        `<div[^>]*class="[^"]*button_building[^"]*${buildingType}[^"]*"[^>]*onclick="ajaxHandlerCall\\('\\?([^']+)'\\)`,
+        'i'
       );
+      const buttonMatch = detailHtml.match(buildingButtonPattern);
 
-      const html = detailResponse.data;
+      let costsHtml = '';
+      if (buttonMatch) {
+        // Étape 2: Requête pour obtenir les coûts détaillés
+        const costsUrl = `/index.php?${buttonMatch[1]}&backgroundView=city&currentCityId=${numericCityId}&templateView=buildingDetail&actionRequest=${actionRequest}&ajax=1`;
+        console.log('💰 URL coûts:', costsUrl);
+
+        const costsResponse = await this.request(costsUrl);
+        costsHtml = costsResponse.data;
+        console.log('💰 Réponse coûts (200 chars):', costsHtml.substring(0, 200));
+      } else {
+        // Fallback: utilise le HTML de détail directement
+        console.log('💰 Bouton bâtiment non trouvé, utilisation du HTML de détail');
+        costsHtml = detailHtml;
+      }
 
       // Parse les coûts depuis le HTML
-      // Cherche les patterns de ressources
-      const costPattern = /<li class="(\w+)">\s*<span class="value">([0-9,.]+)<\/span>/g;
-      const timePattern = /class="constructionTime"[^>]*>([^<]+)</;
-
       const cost: Resources = {
         wood: 0,
         wine: 0,
@@ -863,61 +884,110 @@ export class IkariamApi {
         sulfur: 0,
       };
 
-      let match;
-      while ((match = costPattern.exec(html)) !== null) {
-        const resourceType = match[1].toLowerCase();
-        const value = parseInt(match[2].replace(/[,.\s]/g, ''), 10);
+      // Pattern 1: Format Ikabot - tableau avec classes costs
+      // <td class="costs"><div...>1,234</div></td>
+      const costsCellPattern = /<td class="costs"[^>]*>.*?>([\d,.\s\xa0]+)</g;
+      const resourceTypePattern = /<th class="costs"><img src="[^"]*\/(\w+)\.png/g;
 
-        if (resourceType.includes('wood') || resourceType.includes('resource')) {
-          cost.wood = value;
-        } else if (resourceType.includes('wine') || resourceType === '1') {
-          cost.wine = value;
-        } else if (resourceType.includes('marble') || resourceType === '2') {
-          cost.marble = value;
-        } else if (resourceType.includes('crystal') || resourceType === '3') {
-          cost.crystal = value;
-        } else if (resourceType.includes('sulfur') || resourceType === '4') {
-          cost.sulfur = value;
-        }
+      // Trouve les types de ressources
+      const resourceTypes: string[] = [];
+      let typeMatch;
+      while ((typeMatch = resourceTypePattern.exec(costsHtml)) !== null) {
+        resourceTypes.push(typeMatch[1].toLowerCase());
       }
+      console.log('💰 Types de ressources trouvés:', resourceTypes);
 
-      // Alternative: cherche dans un format JSON si disponible
-      const upgradeData = extractJsonFromHtml(html, 'upgradeData');
-      if (upgradeData) {
-        console.log('💰 Upgrade data trouvé:', upgradeData);
-        if (upgradeData.resources) {
-          cost.wood = upgradeData.resources.wood || upgradeData.resources.resource || 0;
-          cost.wine = upgradeData.resources.wine || upgradeData.resources['1'] || 0;
-          cost.marble = upgradeData.resources.marble || upgradeData.resources['2'] || 0;
-          cost.crystal = upgradeData.resources.crystal || upgradeData.resources['3'] || 0;
-          cost.sulfur = upgradeData.resources.sulfur || upgradeData.resources['4'] || 0;
-        }
+      // Parse les valeurs de coûts
+      const costValues: number[] = [];
+      let valueMatch;
+      while ((valueMatch = costsCellPattern.exec(costsHtml)) !== null) {
+        const value = parseInt(valueMatch[1].replace(/[,.\s\xa0]/g, ''), 10) || 0;
+        costValues.push(value);
       }
+      console.log('💰 Valeurs de coûts trouvées:', costValues);
 
-      // Parse le temps de construction
-      let time = 0;
-      const timeMatch = html.match(timePattern);
-      if (timeMatch) {
-        // Format: "1h 30m 45s" ou "2:30:45"
-        const timeStr = timeMatch[1].trim();
-        const hourMatch = timeStr.match(/(\d+)\s*h/i);
-        const minMatch = timeStr.match(/(\d+)\s*m/i);
-        const secMatch = timeStr.match(/(\d+)\s*s/i);
+      // Pattern 2: Recherche directe des icônes de ressources avec valeurs
+      // Format: class="resource"...>12,345<
+      const directResourcePatterns = [
+        { key: 'wood', pattern: /class="[^"]*wood[^"]*"[^>]*>.*?([\d,.\s]+)/gi },
+        { key: 'wine', pattern: /class="[^"]*wine[^"]*"[^>]*>.*?([\d,.\s]+)/gi },
+        { key: 'marble', pattern: /class="[^"]*marble[^"]*"[^>]*>.*?([\d,.\s]+)/gi },
+        { key: 'crystal', pattern: /class="[^"]*crystal[^"]*"[^>]*>.*?([\d,.\s]+)/gi },
+        { key: 'sulfur', pattern: /class="[^"]*sulfur[^"]*"[^>]*>.*?([\d,.\s]+)/gi },
+      ];
 
-        if (hourMatch) time += parseInt(hourMatch[1]) * 3600;
-        if (minMatch) time += parseInt(minMatch[1]) * 60;
-        if (secMatch) time += parseInt(secMatch[1]);
-
-        // Format alternatif HH:MM:SS
-        if (!hourMatch && !minMatch) {
-          const colonMatch = timeStr.match(/(\d+):(\d+):(\d+)/);
-          if (colonMatch) {
-            time = parseInt(colonMatch[1]) * 3600 + parseInt(colonMatch[2]) * 60 + parseInt(colonMatch[3]);
+      for (const { key, pattern } of directResourcePatterns) {
+        const match = pattern.exec(costsHtml);
+        if (match) {
+          const value = parseInt(match[1].replace(/[,.\s]/g, ''), 10) || 0;
+          if (value > 0) {
+            cost[key as keyof Resources] = value;
+            console.log(`💰 ${key} trouvé: ${value}`);
           }
         }
       }
 
+      // Pattern 3: Format alternatif avec valeurs inline
+      const inlineCostPattern = /<li[^>]*class="[^"]*costs[^"]*"[^>]*>.*?<span[^>]*class="[^"]*value[^"]*"[^>]*>([\d,.\s]+)/gi;
+      let inlineMatch;
+      while ((inlineMatch = inlineCostPattern.exec(costsHtml)) !== null) {
+        console.log('💰 Coût inline trouvé:', inlineMatch[1]);
+      }
+
+      // Parse le temps de construction
+      let time = 0;
+      const timePatterns = [
+        /class="[^"]*constructionTime[^"]*"[^>]*>([^<]+)/i,
+        /id="[^"]*buildTime[^"]*"[^>]*>([^<]+)/i,
+        />(\d+:\d+:\d+)</,
+        />(\d+h\s*\d+m\s*\d+s)</i,
+      ];
+
+      for (const pattern of timePatterns) {
+        const timeMatch = costsHtml.match(pattern);
+        if (timeMatch) {
+          const timeStr = timeMatch[1].trim();
+          console.log('💰 Temps trouvé:', timeStr);
+
+          // Parse le temps
+          const hourMatch = timeStr.match(/(\d+)\s*[h:]/i);
+          const minMatch = timeStr.match(/(\d+)\s*[m:]/i) || timeStr.match(/:(\d+):/);
+          const secMatch = timeStr.match(/(\d+)\s*s/i) || timeStr.match(/:(\d+)$/);
+
+          if (hourMatch) time += parseInt(hourMatch[1]) * 3600;
+          if (minMatch) time += parseInt(minMatch[1]) * 60;
+          if (secMatch) time += parseInt(secMatch[1]);
+
+          if (time > 0) break;
+        }
+      }
+
       console.log('💰 Coûts extraits:', cost, 'Temps:', time);
+
+      // Si aucun coût trouvé, essaye d'extraire depuis JSON dans le HTML
+      const hasAnyCost = Object.values(cost).some(v => v > 0);
+      if (!hasAnyCost) {
+        console.log('💰 Aucun coût trouvé avec les patterns HTML, recherche JSON...');
+
+        // Cherche des données JSON dans le HTML
+        const jsonPatterns = ['upgradeData', 'resourcesNeeded', 'buildingCosts', 'costs'];
+        for (const pattern of jsonPatterns) {
+          const data = extractJsonFromHtml(costsHtml, pattern);
+          if (data) {
+            console.log(`💰 JSON "${pattern}" trouvé:`, data);
+            // Essaye d'extraire les coûts depuis le JSON
+            const resources = data.resources || data.cost || data;
+            if (resources) {
+              cost.wood = resources.wood || resources.resource || resources['0'] || 0;
+              cost.wine = resources.wine || resources['1'] || 0;
+              cost.marble = resources.marble || resources['2'] || 0;
+              cost.crystal = resources.crystal || resources['3'] || 0;
+              cost.sulfur = resources.sulfur || resources['4'] || 0;
+            }
+            break;
+          }
+        }
+      }
 
       return {
         success: true,

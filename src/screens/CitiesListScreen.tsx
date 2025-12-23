@@ -15,7 +15,7 @@ import { IkariamText, IkariamCard, IkariamButton, IkariamBadge } from '@/compone
 import { IkariamTheme } from '@/constants/ikariamTheme';
 
 interface CitiesListScreenProps {
-  onCitySelect: (cityId: string) => void;
+  onCitySelect: (cityId: string, cities?: City[]) => void;
   onLogout: () => void;
 }
 
@@ -84,7 +84,7 @@ export const CitiesListScreen: React.FC<CitiesListScreenProps> = ({
   }, []);
 
   const renderCityItem = ({ item }: { item: City }) => (
-    <TouchableOpacity onPress={() => onCitySelect(item.id)}>
+    <TouchableOpacity onPress={() => onCitySelect(item.id, cities)}>
       <IkariamCard style={styles.cityCard}>
         <View style={styles.cityHeader}>
           <IkariamText variant="heading" style={styles.cityName}>

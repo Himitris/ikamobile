@@ -7,6 +7,8 @@ import {
   Alert,
   TouchableOpacity,
   RefreshControl,
+  Modal,
+  FlatList,
 } from 'react-native';
 import { ikariamApi } from '../services/ikariamApi';
 import type { City, Construction, Building, Resources } from '../types';
@@ -16,14 +18,23 @@ import { IkariamTheme } from '@/constants/ikariamTheme';
 
 interface CityDetailScreenProps {
   cityId: string;
+  allCities?: City[];
   onBack: () => void;
+  onCityChange?: (cityId: string) => void;
 }
 
-export const CityDetailScreen: React.FC<CityDetailScreenProps> = ({ cityId, onBack }) => {
+export const CityDetailScreen: React.FC<CityDetailScreenProps> = ({
+  cityId,
+  allCities = [],
+  onBack,
+  onCityChange,
+}) => {
   const [city, setCity] = useState<City | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadingCosts, setLoadingCosts] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showCitySelector, setShowCitySelector] = useState(false);
 
   const loadCityDetails = async () => {
     try {
@@ -34,8 +45,54 @@ export const CityDetailScreen: React.FC<CityDetailScreenProps> = ({ cityId, onBa
         console.log('🏛️ CityDetailScreen: Détails chargés:', result.data.name);
         console.log('🏛️ CityDetailScreen: Ressources:', result.data.resources);
         console.log('🏛️ CityDetailScreen: Bâtiments:', result.data.buildings?.length || 0);
+
+        // Affiche d'abord la ville sans les coûts
         setCity(result.data);
         setError(null);
+        setLoading(false);
+
+        // Puis charge les coûts d'upgrade en arrière-plan
+        const cityData = result.data;
+        if (cityData.buildings && cityData.buildings.length > 0) {
+          setLoadingCosts(true);
+          console.log('💰 Chargement des coûts d\'upgrade pour', cityData.buildings.length, 'bâtiments...');
+
+          try {
+            const buildingsWithCosts = await Promise.all(
+              cityData.buildings.map(async (building) => {
+                try {
+                  const costResult = await ikariamApi.getBuildingUpgradeCost(
+                    cityId,
+                    building.position,
+                    building.type
+                  );
+
+                  if (costResult.success && costResult.data) {
+                    const hasCosts = Object.values(costResult.data.cost).some(v => v > 0);
+                    if (hasCosts || costResult.data.time > 0) {
+                      console.log(`💰 ${building.name}: coûts chargés`);
+                      return {
+                        ...building,
+                        upgradeCost: costResult.data.cost,
+                        upgradeTime: costResult.data.time,
+                      };
+                    }
+                  }
+                } catch (err) {
+                  console.warn(`⚠️ Erreur coûts ${building.name}:`, err);
+                }
+                return building;
+              })
+            );
+
+            // Met à jour la ville avec les coûts
+            setCity(prev => prev ? { ...prev, buildings: buildingsWithCosts } : null);
+          } finally {
+            setLoadingCosts(false);
+          }
+        }
+
+        return; // Early return car on a déjà fait setLoading(false)
       } else {
         const errorMsg = result.error || 'Impossible de charger les détails de la ville';
         console.error('🏛️ CityDetailScreen: Erreur:', errorMsg);
@@ -175,22 +232,86 @@ export const CityDetailScreen: React.FC<CityDetailScreenProps> = ({ cityId, onBa
     );
   }
 
+  const handleCitySelect = (selectedCityId: string) => {
+    setShowCitySelector(false);
+    if (selectedCityId !== cityId && onCityChange) {
+      setLoading(true);
+      onCityChange(selectedCityId);
+    }
+  };
+
   return (
     <View style={styles.container}>
-      {/* Header avec nom de ville et retour */}
+      {/* Header avec nom de ville et sélecteur */}
       <View style={styles.header}>
         <TouchableOpacity onPress={onBack} style={styles.backButton}>
           <IkariamText variant="body" color="light" style={styles.backIcon}>
             ←
           </IkariamText>
         </TouchableOpacity>
-        <IkariamText variant="heading" color="light" style={styles.cityName}>
-          {city.name}
-        </IkariamText>
+
+        {/* Sélecteur de ville cliquable */}
+        <TouchableOpacity
+          style={styles.citySelectorButton}
+          onPress={() => allCities.length > 1 && setShowCitySelector(true)}
+        >
+          <IkariamText variant="heading" color="light" style={styles.cityName}>
+            {city.name}
+          </IkariamText>
+          {allCities.length > 1 && (
+            <IkariamText variant="caption" color="light" style={styles.selectorArrow}>
+              ▼
+            </IkariamText>
+          )}
+        </TouchableOpacity>
+
         <IkariamText variant="caption" color="light" style={styles.coords}>
           [{city.x}:{city.y}]
         </IkariamText>
       </View>
+
+      {/* Modal sélecteur de ville */}
+      <Modal
+        visible={showCitySelector}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowCitySelector(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowCitySelector(false)}
+        >
+          <View style={styles.modalContent}>
+            <IkariamText variant="heading" style={styles.modalTitle}>
+              Choisir une ville
+            </IkariamText>
+            <FlatList
+              data={allCities}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[
+                    styles.cityOption,
+                    item.id === cityId && styles.cityOptionSelected,
+                  ]}
+                  onPress={() => handleCitySelect(item.id)}
+                >
+                  <IkariamText
+                    variant="body"
+                    weight={item.id === cityId ? 'bold' : 'regular'}
+                  >
+                    {item.name}
+                  </IkariamText>
+                  <IkariamText variant="caption" color="secondary">
+                    [{item.x}:{item.y}]
+                  </IkariamText>
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
       {/* Barre de ressources (compacte en haut) */}
       <View style={styles.resourcesBar}>
@@ -209,6 +330,14 @@ export const CityDetailScreen: React.FC<CityDetailScreenProps> = ({ cityId, onBa
             )}
           </View>
         </ScrollView>
+        {loadingCosts && (
+          <View style={styles.loadingCostsBar}>
+            <ActivityIndicator size="small" color={IkariamTheme.colors.wood.base} />
+            <IkariamText variant="caption" color="secondary" style={styles.loadingCostsText}>
+              Chargement des coûts...
+            </IkariamText>
+          </View>
+        )}
       </View>
 
       {/* Liste des bâtiments */}
@@ -492,11 +621,56 @@ const styles = StyleSheet.create({
   backIcon: {
     fontSize: 24,
   },
-  cityName: {
+  citySelectorButton: {
     flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: IkariamTheme.spacing.sm,
+  },
+  cityName: {
+    flexShrink: 1,
+  },
+  selectorArrow: {
+    opacity: 0.7,
+    fontSize: 12,
   },
   coords: {
     opacity: 0.8,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: IkariamTheme.spacing.xl,
+  },
+  modalContent: {
+    backgroundColor: IkariamTheme.colors.parchment.base,
+    borderRadius: IkariamTheme.borderRadius.lg,
+    padding: IkariamTheme.spacing.lg,
+    maxHeight: '70%',
+    width: '100%',
+    maxWidth: 400,
+    borderWidth: 2,
+    borderColor: IkariamTheme.colors.wood.base,
+    ...IkariamTheme.shadows.lg,
+  },
+  modalTitle: {
+    textAlign: 'center',
+    marginBottom: IkariamTheme.spacing.lg,
+  },
+  cityOption: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: IkariamTheme.spacing.base,
+    paddingHorizontal: IkariamTheme.spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: IkariamTheme.colors.border.light,
+  },
+  cityOptionSelected: {
+    backgroundColor: IkariamTheme.colors.gold.light,
+    borderRadius: IkariamTheme.borderRadius.sm,
   },
   resourcesBar: {
     backgroundColor: IkariamTheme.colors.parchment.dark,
@@ -532,6 +706,19 @@ const styles = StyleSheet.create({
   },
   resourceValue: {
     fontSize: 12,
+  },
+  loadingCostsBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: IkariamTheme.spacing.xs,
+    gap: IkariamTheme.spacing.sm,
+    backgroundColor: IkariamTheme.colors.parchment.base,
+    borderTopWidth: 1,
+    borderTopColor: IkariamTheme.colors.border.light,
+  },
+  loadingCostsText: {
+    fontSize: 11,
   },
   buildingsList: {
     flex: 1,

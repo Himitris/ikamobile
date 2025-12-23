@@ -6,12 +6,14 @@ import { CityDetailScreen } from './screens/CityDetailScreen';
 import { ikariamApi } from './services/ikariamApi';
 import { storageService } from './services/storage';
 import { IkariamTheme } from '@/constants/ikariamTheme';
+import type { City } from './types';
 
 type Screen = 'loading' | 'login' | 'cities' | 'cityDetail';
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<Screen>('loading');
   const [selectedCityId, setSelectedCityId] = useState<string | null>(null);
+  const [allCities, setAllCities] = useState<City[]>([]);
 
   useEffect(() => {
     checkExistingSession();
@@ -48,10 +50,18 @@ export default function App() {
     setCurrentScreen('login');
   };
 
-  const handleCitySelect = (cityId: string) => {
+  const handleCitySelect = (cityId: string, cities?: City[]) => {
     console.log('🏙️ App: Ville sélectionnée:', cityId);
     setSelectedCityId(cityId);
+    if (cities) {
+      setAllCities(cities);
+    }
     setCurrentScreen('cityDetail');
+  };
+
+  const handleCityChange = (cityId: string) => {
+    console.log('🏙️ App: Changement de ville vers:', cityId);
+    setSelectedCityId(cityId);
   };
 
   const handleBackToCities = () => {
@@ -76,7 +86,15 @@ export default function App() {
   }
 
   if (currentScreen === 'cityDetail' && selectedCityId) {
-    return <CityDetailScreen key={selectedCityId} cityId={selectedCityId} onBack={handleBackToCities} />;
+    return (
+      <CityDetailScreen
+        key={selectedCityId}
+        cityId={selectedCityId}
+        allCities={allCities}
+        onBack={handleBackToCities}
+        onCityChange={handleCityChange}
+      />
+    );
   }
 
   return null;
