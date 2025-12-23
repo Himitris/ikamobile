@@ -292,67 +292,46 @@ export class IkariamApi {
 
       console.log('📍 getCities: HTML reçu, longueur:', html.length);
 
+      // Debug: cherche différents patterns possibles
+      const patterns = [
+        'relatedCityData',
+        'updateBackgroundData',
+        'cityId',
+        'cityName',
+        'ikariam.model',
+        'backgroundData',
+      ];
+
+      console.log('📍 getCities: Vérification patterns disponibles:');
+      patterns.forEach(pattern => {
+        const found = html.includes(pattern);
+        console.log(`  - ${pattern}: ${found}`);
+        if (found) {
+          const idx = html.indexOf(pattern);
+          console.log(`    Position: ${idx}, contexte: "${html.substring(idx, idx + 100)}"`);
+        }
+      });
+
       // Extrait relatedCityData en utilisant extractJsonFromHtml
       const citiesData = extractJsonFromHtml(html, 'relatedCityData');
 
       if (!citiesData) {
+        // Fallback: essaie d'extraire depuis updateBackgroundData
+        console.log('📍 getCities: relatedCityData non trouvé, essai avec updateBackgroundData...');
+        const backgroundData = extractJsonFromHtml(html, 'updateBackgroundData');
+
+        if (backgroundData && backgroundData.relatedCityData) {
+          console.log('📍 getCities: Données trouvées dans updateBackgroundData.relatedCityData');
+          return this.parseCitiesFromData(backgroundData.relatedCityData);
+        }
+
         return {
           success: false,
           error: 'Impossible de récupérer les données des villes depuis le HTML',
         };
       }
 
-      console.log('📍 getCities: Données parsées, nombre total de clés:', Object.keys(citiesData).length);
-
-      const cities: City[] = [];
-
-      // Parse chaque ville (filtre les métadonnées comme "additionalInfo", "selectedCity")
-      for (const cityId in citiesData) {
-        const cityData = citiesData[cityId];
-
-        // Filtre: ne garde que les vraies villes
-        // Les villes ont soit une clé qui commence par "city_", soit un objet avec "id" et "name"
-        const isCityKey = cityId.startsWith('city_');
-        const isCityObject = typeof cityData === 'object' && cityData !== null &&
-                             ('id' in cityData || 'name' in cityData);
-
-        if (!isCityKey && !isCityObject) {
-          console.log('📍 getCities: Ignore métadonnée:', cityId);
-          continue;
-        }
-
-        // Parse les coordonnées (format: "[X:Y] " ou {x: X, y: Y})
-        let x = 0, y = 0;
-        if (typeof cityData.coords === 'string') {
-          // Format: "[46:53] "
-          const coordMatch = cityData.coords.match(/\[(\d+):(\d+)\]/);
-          if (coordMatch) {
-            x = parseInt(coordMatch[1]);
-            y = parseInt(coordMatch[2]);
-          }
-        } else if (cityData.coords && typeof cityData.coords === 'object') {
-          x = cityData.coords.x || 0;
-          y = cityData.coords.y || 0;
-        }
-
-        cities.push({
-          id: cityId,
-          name: cityData.name || 'Ville sans nom',
-          islandId: cityData.islandId || '',
-          x,
-          y,
-          resources: {
-            wood: 0,
-            wine: 0,
-            marble: 0,
-            crystal: 0,
-            sulfur: 0,
-          },
-        });
-      }
-
-      console.log('📍 getCities: Villes parsées:', cities.length);
-      return { success: true, data: cities };
+      return this.parseCitiesFromData(citiesData);
     } catch (error: any) {
       console.error('📍 getCities: ERREUR:', error);
       return {
@@ -360,6 +339,63 @@ export class IkariamApi {
         error: error.message || 'Erreur lors de la récupération des villes',
       };
     }
+  }
+
+  /**
+   * Parse les données de villes depuis l'objet relatedCityData
+   */
+  private parseCitiesFromData(citiesData: any): ApiResponse<City[]> {
+    console.log('📍 parseCitiesFromData: Nombre total de clés:', Object.keys(citiesData).length);
+
+    const cities: City[] = [];
+
+    // Parse chaque ville (filtre les métadonnées comme "additionalInfo", "selectedCity")
+    for (const cityId in citiesData) {
+      const cityData = citiesData[cityId];
+
+      // Filtre: ne garde que les vraies villes
+      // Les villes ont soit une clé qui commence par "city_", soit un objet avec "id" et "name"
+      const isCityKey = cityId.startsWith('city_');
+      const isCityObject = typeof cityData === 'object' && cityData !== null &&
+                           ('id' in cityData || 'name' in cityData);
+
+      if (!isCityKey && !isCityObject) {
+        console.log('📍 parseCitiesFromData: Ignore métadonnée:', cityId);
+        continue;
+      }
+
+      // Parse les coordonnées (format: "[X:Y] " ou {x: X, y: Y})
+      let x = 0, y = 0;
+      if (typeof cityData.coords === 'string') {
+        // Format: "[46:53] "
+        const coordMatch = cityData.coords.match(/\[(\d+):(\d+)\]/);
+        if (coordMatch) {
+          x = parseInt(coordMatch[1]);
+          y = parseInt(coordMatch[2]);
+        }
+      } else if (cityData.coords && typeof cityData.coords === 'object') {
+        x = cityData.coords.x || 0;
+        y = cityData.coords.y || 0;
+      }
+
+      cities.push({
+        id: cityId,
+        name: cityData.name || 'Ville sans nom',
+        islandId: cityData.islandId || '',
+        x,
+        y,
+        resources: {
+          wood: 0,
+          wine: 0,
+          marble: 0,
+          crystal: 0,
+          sulfur: 0,
+        },
+      });
+    }
+
+    console.log('📍 parseCitiesFromData: Villes parsées:', cities.length);
+    return { success: true, data: cities };
   }
 
   /**
