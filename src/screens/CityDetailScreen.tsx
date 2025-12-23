@@ -519,10 +519,10 @@ const styles = StyleSheet.create({
   queueSection: {
     marginBottom: IkariamTheme.spacing.base,
     padding: IkariamTheme.spacing.base,
-    backgroundColor: IkariamTheme.colors.blue.light + '20',
+    backgroundColor: IkariamTheme.colors.mediterranean.light + '20',
     borderRadius: IkariamTheme.borderRadius.base,
     borderLeftWidth: 3,
-    borderLeftColor: IkariamTheme.colors.blue.base,
+    borderLeftColor: IkariamTheme.colors.mediterranean.base,
   },
   queueTitle: {
     marginBottom: IkariamTheme.spacing.sm,
