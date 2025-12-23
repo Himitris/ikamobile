@@ -61,9 +61,35 @@ export const CityDetailScreen: React.FC<CityDetailScreenProps> = ({ cityId, onBa
   const handleBuildingUpgrade = async (building: Building) => {
     if (!city) return;
 
+    // Charge les coûts à la demande si non disponibles
+    let upgradeCost = building.upgradeCost;
+    let upgradeTime = building.upgradeTime;
+
+    if (!upgradeCost) {
+      // Affiche un indicateur de chargement
+      Alert.alert('Chargement...', 'Récupération des coûts d\'amélioration...');
+
+      try {
+        const costResult = await ikariamApi.getBuildingUpgradeCost(
+          cityId,
+          building.position,
+          building.type
+        );
+
+        if (costResult.success && costResult.data) {
+          upgradeCost = costResult.data.cost;
+          upgradeTime = costResult.data.time;
+          console.log('💰 Coûts récupérés:', upgradeCost, 'Temps:', upgradeTime);
+        }
+      } catch (error) {
+        console.error('❌ Erreur récupération coûts:', error);
+      }
+    }
+
     // Vérifie si on a assez de ressources
-    const hasEnoughResources = building.upgradeCost
-      ? Object.entries(building.upgradeCost).every(([resource, cost]) => {
+    const hasEnoughResources = upgradeCost
+      ? Object.entries(upgradeCost).every(([resource, cost]) => {
+          if (cost === 0) return true;
           const currentAmount = city.resources[resource as keyof typeof city.resources] || 0;
           return currentAmount >= cost;
         })
@@ -72,22 +98,24 @@ export const CityDetailScreen: React.FC<CityDetailScreenProps> = ({ cityId, onBa
     // Construit le message avec le coût
     let message = `Niveau ${building.level} → ${building.level + 1}`;
 
-    if (building.upgradeCost) {
+    if (upgradeCost) {
       const costs = [];
-      if (building.upgradeCost.wood > 0) costs.push(`🪵 ${formatNumber(building.upgradeCost.wood)}`);
-      if (building.upgradeCost.wine > 0) costs.push(`🍷 ${formatNumber(building.upgradeCost.wine)}`);
-      if (building.upgradeCost.marble > 0) costs.push(`⚪ ${formatNumber(building.upgradeCost.marble)}`);
-      if (building.upgradeCost.crystal > 0) costs.push(`💎 ${formatNumber(building.upgradeCost.crystal)}`);
-      if (building.upgradeCost.sulfur > 0) costs.push(`⚠️ ${formatNumber(building.upgradeCost.sulfur)}`);
+      if (upgradeCost.wood > 0) costs.push(`🪵 ${formatNumber(upgradeCost.wood)}`);
+      if (upgradeCost.wine > 0) costs.push(`🍷 ${formatNumber(upgradeCost.wine)}`);
+      if (upgradeCost.marble > 0) costs.push(`⚪ ${formatNumber(upgradeCost.marble)}`);
+      if (upgradeCost.crystal > 0) costs.push(`💎 ${formatNumber(upgradeCost.crystal)}`);
+      if (upgradeCost.sulfur > 0) costs.push(`⚠️ ${formatNumber(upgradeCost.sulfur)}`);
 
       if (costs.length > 0) {
         message += `\n\nCoût: ${costs.join(', ')}`;
       }
+    } else {
+      message += '\n\n(Coûts non disponibles)';
     }
 
-    if (building.upgradeTime) {
-      const hours = Math.floor(building.upgradeTime / 3600);
-      const minutes = Math.floor((building.upgradeTime % 3600) / 60);
+    if (upgradeTime) {
+      const hours = Math.floor(upgradeTime / 3600);
+      const minutes = Math.floor((upgradeTime % 3600) / 60);
       message += `\nTemps: ${hours}h ${minutes}m`;
     }
 
@@ -96,12 +124,13 @@ export const CityDetailScreen: React.FC<CityDetailScreenProps> = ({ cityId, onBa
     }
 
     Alert.alert(
-      building.name,
+      BUILDING_NAMES[building.type] || building.name || building.type,
       message,
       [
         { text: 'Annuler', style: 'cancel' },
         {
           text: 'Améliorer',
+          style: hasEnoughResources ? 'default' : 'destructive',
           onPress: async () => {
             try {
               const result = await ikariamApi.startConstruction(cityId, building.position.toString());

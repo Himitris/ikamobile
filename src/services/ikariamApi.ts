@@ -3,84 +3,114 @@ import { parseCookies, validateCookies } from '../utils/cookieParser';
 import { PROXY_URL, USE_PROXY } from '../config/api';
 
 /**
- * Extrait un objet JSON depuis du HTML en utilisant le comptage d'accolades
+ * Extrait un objet JSON depuis du HTML - supporte plusieurs formats:
+ * 1. Format JSON-RPC Ikariam: ["patternName", {...data...}],["next"...]
+ * 2. Format JSON.parse(): patternName: JSON.parse('...')
+ * 3. Format objet direct: patternName: {...}
+ *
  * @param html Le HTML source
  * @param startPattern Le pattern de recherche (ex: "relatedCityData", "updateBackgroundData")
  * @returns Le JSON extrait ou null si non trouvé
  */
 function extractJsonFromHtml(html: string, startPattern: string): any | null {
+  console.log(`🔍 extractJsonFromHtml: Recherche "${startPattern}"...`);
+
+  // === MÉTHODE 1: Format JSON-RPC Ikariam ===
+  // Pattern: ["updateBackgroundData", {...}],["updateTemplateData"
+  // Basé sur le code d'Ikabot
+  const jsonRpcPattern = new RegExp(
+    `"${startPattern}"\\s*,\\s*([\\s\\S]*?)\\]\\s*,\\s*\\["`,
+    'i'
+  );
+  const jsonRpcMatch = html.match(jsonRpcPattern);
+
+  if (jsonRpcMatch) {
+    const jsonStr = jsonRpcMatch[1].trim();
+    console.log(`✅ Format JSON-RPC trouvé pour "${startPattern}" (${jsonStr.length} chars)`);
+    try {
+      const parsed = JSON.parse(jsonStr);
+      console.log(`✅ JSON-RPC parsé avec succès pour "${startPattern}"`);
+      return parsed;
+    } catch (e: any) {
+      console.log(`⚠️ Échec parsing JSON-RPC pour "${startPattern}": ${e.message}`);
+      // Continue vers les autres méthodes
+    }
+  }
+
+  // === MÉTHODE 2: Cherche l'index du pattern ===
   const idx = html.indexOf(startPattern);
   if (idx < 0) {
     console.log(`⚠️ Pattern "${startPattern}" non trouvé dans le HTML`);
     return null;
   }
 
-  // Cherche si c'est dans un JSON.parse('...') ou JSON.parse("...")
   const afterPattern = html.substring(idx + startPattern.length);
-  const parseMatch = afterPattern.match(/^\s*:\s*JSON\.parse\s*\(\s*(['"])([\s\S]+?)\1/);
-  let jsonStr = '';
 
+  // === MÉTHODE 3: Format JSON.parse('...') ou JSON.parse("...") ===
+  const parseMatch = afterPattern.match(/^\s*:\s*JSON\.parse\s*\(\s*(['"])([\s\S]+?)\1/);
   if (parseMatch) {
-    // C'est dans un JSON.parse(), extrait la string et décode les échappements
-    jsonStr = parseMatch[2];
+    let jsonStr = parseMatch[2];
     // Décode les échappements JavaScript dans l'ordre correct
     jsonStr = jsonStr.replace(/\\\\/g, '\x00'); // Temporaire pour \\
     jsonStr = jsonStr.replace(/\\"/g, '"');
     jsonStr = jsonStr.replace(/\\'/g, "'");
     jsonStr = jsonStr.replace(/\x00/g, '\\'); // Restaure les vrais backslashes
     console.log(`✅ JSON extrait de JSON.parse() pour "${startPattern}" (${jsonStr.length} chars)`);
+    try {
+      return JSON.parse(jsonStr);
+    } catch (e: any) {
+      console.error(`❌ Erreur parsing JSON.parse() pour "${startPattern}":`, e.message);
+    }
   }
 
-  // Fallback: extraction directe par comptage d'accolades
-  if (!jsonStr) {
-    const startIdx = html.indexOf('{', idx);
-    if (startIdx < 0) {
-      console.log(`⚠️ Accolade ouvrante non trouvée après "${startPattern}"`);
-      return null;
-    }
-
-    let braceCount = 0;
-    let endIdx = startIdx;
-    let inString = false;
-    let escapeNext = false;
-
-    for (let i = startIdx; i < html.length; i++) {
-      const char = html[i];
-
-      if (escapeNext) {
-        escapeNext = false;
-        continue;
-      }
-
-      if (char === '\\') {
-        escapeNext = true;
-        continue;
-      }
-
-      if (char === '"' && !escapeNext) {
-        inString = !inString;
-        continue;
-      }
-
-      if (!inString) {
-        if (char === '{') braceCount++;
-        if (char === '}') braceCount--;
-
-        if (braceCount === 0) {
-          endIdx = i;
-          break;
-        }
-      }
-    }
-
-    if (braceCount !== 0 || endIdx === startIdx) {
-      console.log(`⚠️ JSON incomplet trouvé pour "${startPattern}"`);
-      return null;
-    }
-
-    jsonStr = html.substring(startIdx, endIdx + 1);
-    console.log(`✅ JSON extrait par comptage pour "${startPattern}" (${jsonStr.length} chars)`);
+  // === MÉTHODE 4: Extraction directe par comptage d'accolades ===
+  const startIdx = html.indexOf('{', idx);
+  if (startIdx < 0) {
+    console.log(`⚠️ Accolade ouvrante non trouvée après "${startPattern}"`);
+    return null;
   }
+
+  let braceCount = 0;
+  let endIdx = startIdx;
+  let inString = false;
+  let escapeNext = false;
+
+  for (let i = startIdx; i < html.length; i++) {
+    const char = html[i];
+
+    if (escapeNext) {
+      escapeNext = false;
+      continue;
+    }
+
+    if (char === '\\') {
+      escapeNext = true;
+      continue;
+    }
+
+    if (char === '"' && !escapeNext) {
+      inString = !inString;
+      continue;
+    }
+
+    if (!inString) {
+      if (char === '{') braceCount++;
+      if (char === '}') braceCount--;
+
+      if (braceCount === 0) {
+        endIdx = i;
+        break;
+      }
+    }
+  }
+
+  if (braceCount !== 0 || endIdx === startIdx) {
+    console.log(`⚠️ JSON incomplet trouvé pour "${startPattern}"`);
+    return null;
+  }
+
+  const jsonStr = html.substring(startIdx, endIdx + 1);
+  console.log(`✅ JSON extrait par comptage pour "${startPattern}" (${jsonStr.length} chars)`);
 
   try {
     return JSON.parse(jsonStr);
@@ -89,6 +119,120 @@ function extractJsonFromHtml(html: string, startPattern: string): any | null {
     console.log('Extrait (200 premiers chars):', jsonStr.substring(0, 200));
     return null;
   }
+}
+
+/**
+ * Extrait les données relatedCityData spécifiquement
+ * Ikariam peut les stocker de différentes façons
+ */
+function extractRelatedCityData(html: string): any | null {
+  console.log('🏙️ extractRelatedCityData: Recherche des villes...');
+
+  // Méthode 1: Cherche dans le format JSON-RPC ["relatedCityData", {...}]
+  const jsonRpcPattern = /"relatedCityData"\s*,\s*(\{[\s\S]*?\})\s*\]/;
+  const jsonRpcMatch = html.match(jsonRpcPattern);
+  if (jsonRpcMatch) {
+    try {
+      const data = JSON.parse(jsonRpcMatch[1]);
+      console.log('✅ relatedCityData trouvé via JSON-RPC');
+      return data;
+    } catch (e) {
+      console.log('⚠️ Échec parsing relatedCityData JSON-RPC');
+    }
+  }
+
+  // Méthode 2: Cherche relatedCityData: JSON.parse('...')
+  const parsePattern = /relatedCityData\s*:\s*JSON\.parse\s*\(\s*['"](.+?)['"]\s*\)/;
+  const parseMatch = html.match(parsePattern);
+  if (parseMatch) {
+    try {
+      let jsonStr = parseMatch[1];
+      jsonStr = jsonStr.replace(/\\"/g, '"').replace(/\\'/g, "'");
+      const data = JSON.parse(jsonStr);
+      console.log('✅ relatedCityData trouvé via JSON.parse()');
+      return data;
+    } catch (e) {
+      console.log('⚠️ Échec parsing relatedCityData JSON.parse()');
+    }
+  }
+
+  // Méthode 3: Cherche relatedCityData directement comme objet
+  const directPattern = /relatedCityData\s*[:=]\s*(\{[\s\S]*?\})\s*[,;\n\]]/;
+  const directMatch = html.match(directPattern);
+  if (directMatch) {
+    try {
+      const data = JSON.parse(directMatch[1]);
+      console.log('✅ relatedCityData trouvé directement');
+      return data;
+    } catch (e) {
+      console.log('⚠️ Échec parsing relatedCityData direct');
+    }
+  }
+
+  // Méthode 4: Extraction via updateBackgroundData qui contient relatedCityData
+  const bgData = extractJsonFromHtml(html, 'updateBackgroundData');
+  if (bgData && bgData.relatedCityData) {
+    console.log('✅ relatedCityData trouvé dans updateBackgroundData');
+    return bgData.relatedCityData;
+  }
+
+  // Méthode 5: Recherche avec comptage d'accolades depuis relatedCityData
+  const idx = html.indexOf('relatedCityData');
+  if (idx >= 0) {
+    // Trouve le début de l'objet JSON
+    const searchStart = idx + 'relatedCityData'.length;
+    const braceStart = html.indexOf('{', searchStart);
+
+    if (braceStart >= 0 && braceStart - searchStart < 20) { // Max 20 chars entre pattern et {
+      let braceCount = 0;
+      let endIdx = braceStart;
+      let inString = false;
+      let escapeNext = false;
+
+      for (let i = braceStart; i < Math.min(html.length, braceStart + 50000); i++) {
+        const char = html[i];
+
+        if (escapeNext) {
+          escapeNext = false;
+          continue;
+        }
+
+        if (char === '\\') {
+          escapeNext = true;
+          continue;
+        }
+
+        if (char === '"') {
+          inString = !inString;
+          continue;
+        }
+
+        if (!inString) {
+          if (char === '{') braceCount++;
+          if (char === '}') braceCount--;
+
+          if (braceCount === 0) {
+            endIdx = i;
+            break;
+          }
+        }
+      }
+
+      if (braceCount === 0 && endIdx > braceStart) {
+        const jsonStr = html.substring(braceStart, endIdx + 1);
+        try {
+          const data = JSON.parse(jsonStr);
+          console.log('✅ relatedCityData extrait par comptage d\'accolades');
+          return data;
+        } catch (e) {
+          console.log('⚠️ Échec parsing relatedCityData par comptage');
+        }
+      }
+    }
+  }
+
+  console.log('❌ relatedCityData non trouvé avec aucune méthode');
+  return null;
 }
 
 /**
@@ -308,26 +452,46 @@ export class IkariamApi {
         console.log(`  - ${pattern}: ${found}`);
         if (found) {
           const idx = html.indexOf(pattern);
-          console.log(`    Position: ${idx}, contexte: "${html.substring(idx, idx + 100)}"`);
+          console.log(`    Position: ${idx}, contexte: "${html.substring(idx, idx + 150)}..."`);
         }
       });
 
-      // Extrait relatedCityData en utilisant extractJsonFromHtml
-      const citiesData = extractJsonFromHtml(html, 'relatedCityData');
+      // Utilise la nouvelle fonction spécialisée pour extraire relatedCityData
+      const citiesData = extractRelatedCityData(html);
 
       if (!citiesData) {
-        // Fallback: essaie d'extraire depuis updateBackgroundData
-        console.log('📍 getCities: relatedCityData non trouvé, essai avec updateBackgroundData...');
+        // Dernier recours: essaie d'extraire les villes depuis updateBackgroundData
+        console.log('📍 getCities: Essai extraction depuis updateBackgroundData...');
         const backgroundData = extractJsonFromHtml(html, 'updateBackgroundData');
 
-        if (backgroundData && backgroundData.relatedCityData) {
-          console.log('📍 getCities: Données trouvées dans updateBackgroundData.relatedCityData');
-          return this.parseCitiesFromData(backgroundData.relatedCityData);
+        if (backgroundData) {
+          console.log('📍 getCities: updateBackgroundData trouvé, clés:', Object.keys(backgroundData));
+
+          // Peut-être que les villes sont directement dans backgroundData
+          if (backgroundData.relatedCityData) {
+            console.log('📍 getCities: relatedCityData trouvé dans backgroundData');
+            return this.parseCitiesFromData(backgroundData.relatedCityData);
+          }
+
+          // Ou peut-être que backgroundData contient directement les infos de la ville courante
+          // et on peut construire une liste à partir de ça
+          if (backgroundData.id && backgroundData.name) {
+            console.log('📍 getCities: Construction liste depuis backgroundData directement');
+            const city: City = {
+              id: backgroundData.id,
+              name: backgroundData.name,
+              islandId: backgroundData.islandId || '',
+              x: parseInt(backgroundData.islandXCoord) || 0,
+              y: parseInt(backgroundData.islandYCoord) || 0,
+              resources: { wood: 0, wine: 0, marble: 0, crystal: 0, sulfur: 0 },
+            };
+            return { success: true, data: [city] };
+          }
         }
 
         return {
           success: false,
-          error: 'Impossible de récupérer les données des villes depuis le HTML',
+          error: 'Impossible de récupérer les données des villes depuis le HTML. Vérifiez que votre cookie est valide.',
         };
       }
 
@@ -635,6 +799,122 @@ export class IkariamApi {
       return {
         success: false,
         error: error.message || 'Erreur lors de la récupération des détails de la ville',
+      };
+    }
+  }
+
+  /**
+   * Récupère les coûts d'upgrade d'un bâtiment
+   * Basé sur le code d'Ikabot (constructionList.py)
+   */
+  async getBuildingUpgradeCost(
+    cityId: string,
+    position: number,
+    buildingType: string
+  ): Promise<ApiResponse<{ cost: Resources; time: number }>> {
+    if (!this.session) {
+      return { success: false, error: 'Aucune session active' };
+    }
+
+    try {
+      console.log(`💰 getBuildingUpgradeCost: position=${position}, type=${buildingType}`);
+
+      // Récupère d'abord le token CSRF et la page de la ville
+      const cityResponse = await this.request(`/index.php?view=city&cityId=${cityId}`);
+      const actionRequestMatch = cityResponse.data.match(/actionRequest[^'"]*['"]([^'"]+)/);
+
+      if (!actionRequestMatch) {
+        return { success: false, error: 'Token CSRF non trouvé' };
+      }
+
+      const actionRequest = actionRequestMatch[1];
+
+      // Requête pour obtenir les détails du bâtiment avec les coûts
+      // Format basé sur Ikabot: view=buildingDetail&buildingId=X&helpId=Y&position=Z
+      const detailResponse = await this.request(
+        `/index.php?view=buildingDetail&cityId=${cityId}&position=${position}&actionRequest=${actionRequest}&ajax=1`
+      );
+
+      const html = detailResponse.data;
+
+      // Parse les coûts depuis le HTML
+      // Cherche les patterns de ressources
+      const costPattern = /<li class="(\w+)">\s*<span class="value">([0-9,.]+)<\/span>/g;
+      const timePattern = /class="constructionTime"[^>]*>([^<]+)</;
+
+      const cost: Resources = {
+        wood: 0,
+        wine: 0,
+        marble: 0,
+        crystal: 0,
+        sulfur: 0,
+      };
+
+      let match;
+      while ((match = costPattern.exec(html)) !== null) {
+        const resourceType = match[1].toLowerCase();
+        const value = parseInt(match[2].replace(/[,.\s]/g, ''), 10);
+
+        if (resourceType.includes('wood') || resourceType.includes('resource')) {
+          cost.wood = value;
+        } else if (resourceType.includes('wine') || resourceType === '1') {
+          cost.wine = value;
+        } else if (resourceType.includes('marble') || resourceType === '2') {
+          cost.marble = value;
+        } else if (resourceType.includes('crystal') || resourceType === '3') {
+          cost.crystal = value;
+        } else if (resourceType.includes('sulfur') || resourceType === '4') {
+          cost.sulfur = value;
+        }
+      }
+
+      // Alternative: cherche dans un format JSON si disponible
+      const upgradeData = extractJsonFromHtml(html, 'upgradeData');
+      if (upgradeData) {
+        console.log('💰 Upgrade data trouvé:', upgradeData);
+        if (upgradeData.resources) {
+          cost.wood = upgradeData.resources.wood || upgradeData.resources.resource || 0;
+          cost.wine = upgradeData.resources.wine || upgradeData.resources['1'] || 0;
+          cost.marble = upgradeData.resources.marble || upgradeData.resources['2'] || 0;
+          cost.crystal = upgradeData.resources.crystal || upgradeData.resources['3'] || 0;
+          cost.sulfur = upgradeData.resources.sulfur || upgradeData.resources['4'] || 0;
+        }
+      }
+
+      // Parse le temps de construction
+      let time = 0;
+      const timeMatch = html.match(timePattern);
+      if (timeMatch) {
+        // Format: "1h 30m 45s" ou "2:30:45"
+        const timeStr = timeMatch[1].trim();
+        const hourMatch = timeStr.match(/(\d+)\s*h/i);
+        const minMatch = timeStr.match(/(\d+)\s*m/i);
+        const secMatch = timeStr.match(/(\d+)\s*s/i);
+
+        if (hourMatch) time += parseInt(hourMatch[1]) * 3600;
+        if (minMatch) time += parseInt(minMatch[1]) * 60;
+        if (secMatch) time += parseInt(secMatch[1]);
+
+        // Format alternatif HH:MM:SS
+        if (!hourMatch && !minMatch) {
+          const colonMatch = timeStr.match(/(\d+):(\d+):(\d+)/);
+          if (colonMatch) {
+            time = parseInt(colonMatch[1]) * 3600 + parseInt(colonMatch[2]) * 60 + parseInt(colonMatch[3]);
+          }
+        }
+      }
+
+      console.log('💰 Coûts extraits:', cost, 'Temps:', time);
+
+      return {
+        success: true,
+        data: { cost, time },
+      };
+    } catch (error: any) {
+      console.error('💰 Erreur getBuildingUpgradeCost:', error);
+      return {
+        success: false,
+        error: error.message || 'Erreur lors de la récupération des coûts',
       };
     }
   }
