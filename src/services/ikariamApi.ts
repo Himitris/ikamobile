@@ -542,8 +542,11 @@ export class IkariamApi {
         y = cityData.coords.y || 0;
       }
 
+      // L'ID réel est dans cityData.id, pas la clé (city_765 → 765)
+      const realId = cityData.id ? String(cityData.id) : cityId.replace('city_', '');
+
       cities.push({
-        id: cityId,
+        id: realId,
         name: cityData.name || 'Ville sans nom',
         islandId: cityData.islandId || '',
         x,
@@ -556,6 +559,7 @@ export class IkariamApi {
           sulfur: 0,
         },
       });
+      console.log(`📍 parseCitiesFromData: Ville ajoutée - ${cityData.name} (ID: ${realId})`);
     }
 
     console.log('📍 parseCitiesFromData: Villes parsées:', cities.length);
@@ -571,15 +575,22 @@ export class IkariamApi {
     }
 
     try {
-      console.log('📍 getCityDetails: Récupération détails ville', cityId);
+      // Extrait l'ID numérique (765) de "city_765" ou garde l'ID tel quel s'il est déjà numérique
+      const numericId = cityId.replace('city_', '');
+      console.log('📍 getCityDetails: Récupération détails ville', cityId, '→ ID numérique:', numericId);
 
       // IMPORTANT: Il faut d'abord faire une requête pour changer de ville active
       // sinon Ikariam retourne toujours les infos de la ville courante
-      console.log('📍 getCityDetails: Changement de ville active vers', cityId);
-      await this.request(`/index.php?view=city&cityId=${cityId}`);
+      console.log('📍 getCityDetails: Changement de ville active vers', numericId);
 
-      // Ensuite on récupère les vraies données de la ville
-      const response = await this.request(`/index.php?view=city&cityId=${cityId}`);
+      // Première requête pour changer de ville
+      await this.request(`/index.php?view=city&cityId=${numericId}`);
+
+      // Petite pause pour laisser le serveur traiter le changement
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Deuxième requête pour récupérer les données
+      const response = await this.request(`/index.php?view=city&cityId=${numericId}`);
       const html = response.data;
 
       console.log(`📍 getCityDetails: HTML reçu pour ${cityId}, taille:`, html.length);
@@ -780,7 +791,7 @@ export class IkariamApi {
       const result = {
         success: true,
         data: {
-          id: cityId,
+          id: numericId,
           name: cityName,
           islandId,
           x,
@@ -817,10 +828,12 @@ export class IkariamApi {
     }
 
     try {
-      console.log(`💰 getBuildingUpgradeCost: position=${position}, type=${buildingType}`);
+      // Extrait l'ID numérique
+      const numericCityId = cityId.replace('city_', '');
+      console.log(`💰 getBuildingUpgradeCost: cityId=${numericCityId}, position=${position}, type=${buildingType}`);
 
       // Récupère d'abord le token CSRF et la page de la ville
-      const cityResponse = await this.request(`/index.php?view=city&cityId=${cityId}`);
+      const cityResponse = await this.request(`/index.php?view=city&cityId=${numericCityId}`);
       const actionRequestMatch = cityResponse.data.match(/actionRequest[^'"]*['"]([^'"]+)/);
 
       if (!actionRequestMatch) {
@@ -832,7 +845,7 @@ export class IkariamApi {
       // Requête pour obtenir les détails du bâtiment avec les coûts
       // Format basé sur Ikabot: view=buildingDetail&buildingId=X&helpId=Y&position=Z
       const detailResponse = await this.request(
-        `/index.php?view=buildingDetail&cityId=${cityId}&position=${position}&actionRequest=${actionRequest}&ajax=1`
+        `/index.php?view=buildingDetail&cityId=${numericCityId}&position=${position}&actionRequest=${actionRequest}&ajax=1`
       );
 
       const html = detailResponse.data;
@@ -922,15 +935,19 @@ export class IkariamApi {
   /**
    * Lance la construction d'un bâtiment
    */
-  async startConstruction(cityId: string, buildingId: string): Promise<ApiResponse> {
+  async startConstruction(cityId: string, buildingPosition: string): Promise<ApiResponse> {
     if (!this.session) {
       return { success: false, error: 'Aucune session active' };
     }
 
     try {
+      // Extrait l'ID numérique
+      const numericCityId = cityId.replace('city_', '');
+      console.log(`🔨 startConstruction: cityId=${numericCityId}, position=${buildingPosition}`);
+
       // Récupère d'abord le token CSRF depuis la page de la ville
-      const cityResponse = await this.request(`/index.php?view=city&cityId=${cityId}`);
-      const actionRequestMatch = cityResponse.data.match(/actionRequest[^']*'([^']+)/);
+      const cityResponse = await this.request(`/index.php?view=city&cityId=${numericCityId}`);
+      const actionRequestMatch = cityResponse.data.match(/actionRequest[^'"]*['"]([^'"]+)/);
 
       if (!actionRequestMatch) {
         return { success: false, error: 'Token CSRF non trouvé' };
@@ -939,10 +956,13 @@ export class IkariamApi {
       const actionRequest = actionRequestMatch[1];
 
       // Envoie la requête de construction
+      // Format basé sur Ikabot
       const response = await this.request(
-        `/index.php?action=CityScreen&function=build&cityId=${cityId}&position=${buildingId}&actionRequest=${actionRequest}`,
+        `/index.php?action=CityScreen&function=build&cityId=${numericCityId}&position=${buildingPosition}&actionRequest=${actionRequest}`,
         { method: 'POST' }
       );
+
+      console.log('🔨 startConstruction: Réponse:', response.status, response.data.substring(0, 200));
 
       if (response.data.includes('error') || response.status !== 200) {
         return { success: false, error: 'Échec de la construction' };
@@ -950,6 +970,7 @@ export class IkariamApi {
 
       return { success: true };
     } catch (error: any) {
+      console.error('🔨 startConstruction: Erreur:', error);
       return {
         success: false,
         error: error.message || 'Erreur lors du lancement de la construction',
