@@ -427,150 +427,86 @@ export class IkariamApi {
 
       if (resourcesData) {
         // DEBUG: log les valeurs brutes
+        console.log('🔍 DEBUG resourcesData complet:', JSON.stringify(resourcesData, null, 2));
+        console.log('🔍 DEBUG resourcesData.resource:', resourcesData.resource);
         console.log('🔍 DEBUG resourcesData["1"]:', resourcesData['1']);
         console.log('🔍 DEBUG resourcesData["2"]:', resourcesData['2']);
-        console.log('🔍 DEBUG resourcesData.resource:', resourcesData.resource);
+        console.log('🔍 DEBUG resourcesData["3"]:', resourcesData['3']);
+        console.log('🔍 DEBUG resourcesData["4"]:', resourcesData['4']);
 
-        // Mapping des IDs de ressources Ikariam vers les noms
-        // 1 = wood, 2 = wine, 3 = marble, 4 = crystal, 5 = sulfur
+        // Mapping correct basé sur Ikabot:
+        // "resource" = bois (wood) - ressource de base
+        // "1" = vin (wine)
+        // "2" = marbre (marble)
+        // "3" = cristal (crystal)
+        // "4" = soufre (sulfur)
+        // L'or est probablement dans un autre champ (gold, tradegood, etc.)
         resources = {
-          wood: parseNumber(resourcesData['1'] || resourcesData.wood),
-          wine: parseNumber(resourcesData['2'] || resourcesData.wine),
-          marble: parseNumber(resourcesData['3'] || resourcesData.marble),
-          crystal: parseNumber(resourcesData['4'] || resourcesData.crystal),
-          sulfur: parseNumber(resourcesData['5'] || resourcesData.sulfur),
-          gold: parseNumber(resourcesData.resource || resourcesData.gold),
-          citizens: parseNumber(resourcesData.citizens),
+          wood: parseNumber(resourcesData.resource || resourcesData.wood || 0),
+          wine: parseNumber(resourcesData['1'] || resourcesData.wine || 0),
+          marble: parseNumber(resourcesData['2'] || resourcesData.marble || 0),
+          crystal: parseNumber(resourcesData['3'] || resourcesData.crystal || 0),
+          sulfur: parseNumber(resourcesData['4'] || resourcesData.sulfur || 0),
+          // L'or peut être dans différents champs selon le contexte
+          gold: parseNumber(resourcesData.gold || resourcesData.tradegood || cityInfo?.gold || 0),
+          citizens: parseNumber(resourcesData.citizens || 0),
         };
         console.log('✅ getCityDetails: Ressources parsées:', resources);
       } else {
         console.warn('⚠️ getCityDetails: Ressources non trouvées - affichage à 0');
       }
 
-      // Parse les bâtiments de la ville
+      // Parse les bâtiments de la ville depuis cityInfo.position (comme Ikabot)
       let buildings: Building[] = [];
       try {
         console.log('🏗️ Début du parsing des bâtiments...');
 
-        // Cherche buildingGround dans le HTML pour les bâtiments
-        const buildingGroundMatch = html.match(/id="buildingGround"[\s\S]*?<\/ul>/);
+        if (cityInfo && cityInfo.position && Array.isArray(cityInfo.position)) {
+          console.log(`✅ Positions trouvées dans cityInfo: ${cityInfo.position.length}`);
 
-        if (!buildingGroundMatch) {
-          console.warn('⚠️ buildingGround non trouvé dans le HTML');
-          // Essaye une approche alternative: cherche toutes les divs avec position\d+
-          const alternativeMatches = html.match(/id="position\d+"/g);
-          console.log('🔍 Positions alternatives trouvées:', alternativeMatches?.length || 0);
-        } else {
-          const buildingGroundHtml = buildingGroundMatch[0];
-          console.log('✅ buildingGround trouvé, taille:', buildingGroundHtml.length);
-
-          // Parse chaque position de bâtiment (0-17)
-          for (let position = 0; position <= 17; position++) {
-            // Pattern plus flexible pour matcher les positions
-            const positionPatterns = [
-              `id="position${position}"[^>]*class="([^"]*)"`,
-              `position${position}[^>]*class="([^"]*)"`,
-            ];
-
-            let positionData = null;
-            let classes = '';
-
-            for (const pattern of positionPatterns) {
-              const regex = new RegExp(pattern);
-              const match = buildingGroundHtml.match(regex);
-              if (match) {
-                classes = match[1];
-                positionData = match;
-                break;
-              }
+          cityInfo.position.forEach((positionData: any, index: number) => {
+            // Skip les positions vides
+            if (!positionData.building || positionData.building === 'empty') {
+              return;
             }
 
-            if (!positionData || !classes) {
-              continue;
+            const level = parseNumber(positionData.level);
+            if (level === 0) {
+              return; // Skip si pas de niveau
             }
 
-            // Extrait le type de bâtiment depuis la classe
-            const buildingTypeMatch = classes.match(/building(\w+)/);
-            if (!buildingTypeMatch) {
-              continue;
+            // Le type de bâtiment peut contenir "constructionSite" s'il est en construction
+            let buildingType = positionData.building;
+            const isBusy = buildingType.includes('constructionSite');
+            if (isBusy) {
+              buildingType = buildingType.replace('constructionSite', '').trim();
             }
 
-            const buildingType = buildingTypeMatch[1].toLowerCase();
+            // Nettoie le type (enlève "buildingGround" si présent)
+            buildingType = buildingType.replace(/buildingGround\s*/g, '').trim();
 
-            // Extrait le niveau depuis la classe (buildingLevel\d+)
-            const levelMatch = classes.match(/level(\d+)/);
-            const level = levelMatch ? parseInt(levelMatch[1]) : 0;
-
-            if (!buildingType || level === 0) {
-              continue;
+            if (!buildingType) {
+              return; // Skip si pas de type valide
             }
 
-            // Pour extraire le nom et les infos d'upgrade, on doit chercher dans une zone plus large
-            // autour de cette position
-            const positionBlockRegex = new RegExp(
-              `id="position${position}"[\\s\\S]{0,2000}?(?=id="position(?:${position + 1}|${position - 1})")|id="position${position}"[\\s\\S]{0,2000}$`
-            );
-            const positionBlock = buildingGroundHtml.match(positionBlockRegex);
-            const content = positionBlock ? positionBlock[0] : '';
+            // Le nom peut être dans positionData.name ou on utilise le type
+            const name = positionData.name || buildingType;
 
-            // Extrait le nom du bâtiment depuis le title ou alt
-            let name = buildingType;
-            const namePatterns = [
-              /title="([^"]+)"/,
-              /alt="([^"]+)"/,
-              /data-name="([^"]+)"/,
-            ];
-
-            for (const pattern of namePatterns) {
-              const match = content.match(pattern);
-              if (match) {
-                name = match[1].replace(/&nbsp;/g, ' ').replace(/&#039;/g, "'").trim();
-                // Nettoie le nom si c'est quelque chose comme "Hôtel de ville (Niveau 7)"
-                name = name.replace(/\s*\([^)]*\)\s*/g, '').trim();
-                break;
-              }
-            }
-
-            // Tente d'extraire les coûts et le temps d'upgrade depuis le HTML
-            let upgradeTime: number | undefined;
-            let upgradeCost: Resources | undefined;
-
-            // Cherche le temps de construction (format: data-constructiontime="3600" en secondes)
-            const timeMatch = content.match(/(?:data-constructiontime|upgradeTime)="(\d+)"/);
-            if (timeMatch) {
-              upgradeTime = parseInt(timeMatch[1]);
-            }
-
-            // Cherche les coûts dans les attributs data-costs
-            const costsMatch = content.match(/(?:data-costs|costs)="([^"]+)"/);
-            if (costsMatch) {
-              try {
-                const costsStr = costsMatch[1].replace(/&quot;/g, '"').replace(/&#039;/g, "'");
-                const costsData = JSON.parse(costsStr);
-                upgradeCost = {
-                  wood: parseNumber(costsData['1'] || costsData.wood || 0),
-                  wine: parseNumber(costsData['2'] || costsData.wine || 0),
-                  marble: parseNumber(costsData['3'] || costsData.marble || 0),
-                  crystal: parseNumber(costsData['4'] || costsData.crystal || 0),
-                  sulfur: parseNumber(costsData['5'] || costsData.sulfur || 0),
-                };
-              } catch (e) {
-                console.warn(`⚠️ Impossible de parser les coûts pour ${buildingType} position ${position}`);
-              }
-            }
-
-            console.log(`✅ Bâtiment trouvé: ${buildingType} (${name}) niveau ${level} à position ${position}`);
+            console.log(`✅ Bâtiment trouvé: ${buildingType} (${name}) niveau ${level} à position ${index}`);
 
             buildings.push({
-              id: `${position}`,
+              id: `${index}`,
               name,
               level,
-              position,
+              position: index,
               type: buildingType as any,
-              upgradeTime,
-              upgradeCost,
+              // Les coûts et temps d'upgrade ne sont pas dans updateBackgroundData
+              // Il faudrait une requête supplémentaire pour les obtenir
             });
-          }
+          });
+        } else {
+          console.warn('⚠️ cityInfo.position non trouvé ou n\'est pas un tableau');
+          console.log('🔍 Structure de cityInfo:', Object.keys(cityInfo || {}));
         }
 
         console.log(`📍 getCityDetails: Total bâtiments trouvés: ${buildings.length}`);
