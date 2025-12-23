@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet } from 'react';
+import { View, StyleSheet } from 'react-native';
 import { CityDetailScreen } from '@/src/screens/CityDetailScreen';
 import { useSession } from '@/src/contexts/SessionContext';
 import { IkariamText } from '@/components/ikariam';
