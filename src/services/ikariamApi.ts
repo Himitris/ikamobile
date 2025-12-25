@@ -816,7 +816,7 @@ export class IkariamApi {
 
   /**
    * Récupère les coûts d'upgrade d'un bâtiment
-   * Approche simplifiée: requête directe sur la page du bâtiment
+   * Utilise la page ikipedia qui contient le tableau de tous les niveaux
    */
   async getBuildingUpgradeCost(
     cityId: string,
@@ -837,26 +837,73 @@ export class IkariamApi {
       const cost: Resources = { wood: 0, wine: 0, marble: 0, crystal: 0, sulfur: 0 };
       let time = 0;
 
-      // Requête directe sur la page du bâtiment - plus simple et fiable
-      const buildingUrl = `/index.php?view=${buildingType}&cityId=${numericCityId}&position=${position}&ajax=1`;
-      console.log('💰 URL:', buildingUrl);
+      // Mapping des types de bâtiments vers leurs IDs d'aide (helpId) pour ikipedia
+      const buildingHelpIds: Record<string, number> = {
+        townHall: 1,
+        palace: 2,
+        tavern: 5,
+        museum: 6,
+        academy: 4,
+        workshop: 7,
+        temple: 31,
+        warehouse: 8,
+        port: 3,
+        shipyard: 10,
+        barracks: 9,
+        wall: 11,
+        embassy: 12,
+        branchOffice: 13,
+        stonemason: 14,
+        architect: 15,
+        vineyard: 16,
+        winery: 17,
+        marble: 18,
+        glassblowing: 19,
+        optician: 20,
+        alchemist: 21,
+        fireworker: 22,
+        carpentering: 23,
+        winegrower: 24,
+        forester: 25,
+        pirateFortress: 26,
+        blackMarket: 27,
+        marineChartArchive: 28,
+        dump: 29,
+        // Ajout des synonymes
+        tradingPort: 3,
+        commercialPort: 3,
+      };
 
-      const response = await this.request(buildingUrl);
+      const helpId = buildingHelpIds[buildingType] || 1;
+      console.log(`💰 helpId pour ${buildingType}: ${helpId}`);
+
+      // Requête sur la page ikipedia du bâtiment
+      const ikipediaUrl = `/index.php?view=buildingDetail&buildingId=${position}&helpId=${helpId}&cityId=${numericCityId}&position=${position}&templateView=ikipedia&ajax=1`;
+      console.log('💰 URL ikipedia:', ikipediaUrl);
+
+      const response = await this.request(ikipediaUrl);
       let html = response.data;
 
-      // Si c'est du JSON-RPC, extrait le HTML
-      if (html.startsWith('[["')) {
+      // Extrait le HTML du template depuis le JSON-RPC
+      if (html.startsWith('[["') || html.startsWith('[[\"')) {
         try {
           const jsonData = JSON.parse(html);
+          console.log('💰 JSON-RPC parsé, éléments:', jsonData.length);
+
           for (const item of jsonData) {
-            if (Array.isArray(item) && item[0] === 'updateTemplateData') {
-              // Le HTML peut être dans item[1] directement ou dans item[1][1]
-              if (typeof item[1] === 'string') {
-                html = item[1];
-                break;
-              } else if (item[1] && typeof item[1][1] === 'string') {
-                html = item[1][1];
-                break;
+            if (Array.isArray(item)) {
+              const [name, data] = item;
+              // Le HTML template peut être dans différents formats
+              if (name === 'updateTemplateData') {
+                if (Array.isArray(data) && data.length >= 2 && typeof data[1] === 'string') {
+                  html = data[1];
+                  console.log('💰 HTML extrait de updateTemplateData[1]');
+                  break;
+                } else if (typeof data === 'string') {
+                  html = data;
+                  console.log('💰 HTML extrait de updateTemplateData (string)');
+                  break;
+                }
               }
             }
           }
@@ -865,169 +912,179 @@ export class IkariamApi {
         }
       }
 
-      console.log('💰 HTML length:', html.length);
+      console.log('💰 HTML length après extraction:', html.length);
 
-      // Debug: affiche un échantillon du HTML pour comprendre le format
-      console.log('💰 HTML sample (2000 chars):', html.substring(0, 2000));
+      // Vérifie si on a bien extrait du HTML (pas du JSON)
+      const isHtml = html.includes('<') && html.includes('>');
+      console.log('💰 Est du HTML:', isHtml);
 
-      // Cherche les patterns de coûts possibles dans le HTML
-      const hasUpgradeButton = html.includes('upgradeBuilding') || html.includes('upgrade_building');
-      const hasResourceClass = html.includes('class="resources"') || html.includes('class="resource"');
-      const hasValueClass = html.includes('class="value"') || html.includes('class="amount"');
-      const hasCostSection = html.includes('cost') || html.includes('Cost');
-      console.log('💰 Patterns trouvés:', { hasUpgradeButton, hasResourceClass, hasValueClass, hasCostSection });
-
-      // === MÉTHODE 1: Cherche les coûts dans la section "upgradeAction" ===
-      // Format: <li class="resources"><span class="icon wood">123</span>...
-      const upgradeSection = html.match(/class="[^"]*upgradeAction[^"]*"[\s\S]*?<\/div>/i)?.[0] || '';
-
-      if (upgradeSection) {
-        console.log('💰 Section upgradeAction trouvée');
-
-        // Extraction des ressources par classe CSS
-        const resourcePatterns = [
-          { key: 'wood', pattern: /class="[^"]*(?:wood|resource)[^"]*"[^>]*>[\s\S]*?([\d\s,.'']+)/i },
-          { key: 'wine', pattern: /class="[^"]*wine[^"]*"[^>]*>[\s\S]*?([\d\s,.'']+)/i },
-          { key: 'marble', pattern: /class="[^"]*marble[^"]*"[^>]*>[\s\S]*?([\d\s,.'']+)/i },
-          { key: 'crystal', pattern: /class="[^"]*(?:crystal|glass)[^"]*"[^>]*>[\s\S]*?([\d\s,.'']+)/i },
-          { key: 'sulfur', pattern: /class="[^"]*sulfu?r[^"]*"[^>]*>[\s\S]*?([\d\s,.'']+)/i },
-        ];
-
-        for (const { key, pattern } of resourcePatterns) {
-          const match = upgradeSection.match(pattern);
-          if (match) {
-            const value = parseInt(match[1].replace(/[\s,.'']/g, '')) || 0;
-            cost[key as keyof Resources] = value;
-            console.log(`💰 ${key}: ${value}`);
-          }
-        }
-
-        // Extraction du temps
-        const timeMatch = upgradeSection.match(/(?:time|temps)[^>]*>[\s\S]*?(\d+)[:\s]*(\d+)?[:\s]*(\d+)?/i);
-        if (timeMatch) {
-          // Peut être HH:MM:SS ou juste des minutes
-          const h = parseInt(timeMatch[1]) || 0;
-          const m = parseInt(timeMatch[2]) || 0;
-          const s = parseInt(timeMatch[3]) || 0;
-          time = h * 3600 + m * 60 + s;
-          console.log(`💰 Temps: ${h}h ${m}m ${s}s = ${time}s`);
-        }
+      if (!isHtml) {
+        console.log('💰 Pas de HTML valide trouvé, utilisation fallback');
+        return { success: true, data: { cost, time } };
       }
 
-      // === MÉTHODE 2: Cherche dans les ressources affichées (format liste) ===
-      if (cost.wood === 0 && cost.marble === 0) {
-        console.log('💰 Essai méthode 2: pattern liste ressources...');
+      // Debug: cherche les patterns clés
+      const hasLevelTable = html.includes('class="level"') || html.includes('Niveau') || html.includes('Level');
+      const hasCostsTable = html.includes('class="costs"') || html.includes('Matériau') || html.includes('Wood');
+      console.log('💰 Patterns:', { hasLevelTable, hasCostsTable });
 
-        // Pattern: <li ... class="... wood ..."><span class="value">123</span>
-        const liPatterns = [
-          { key: 'wood', pattern: /<li[^>]*class="[^"]*wood[^"]*"[^>]*>[\s\S]*?<span[^>]*class="[^"]*value[^"]*"[^>]*>([\d\s,.'']+)/gi },
-          { key: 'wine', pattern: /<li[^>]*class="[^"]*wine[^"]*"[^>]*>[\s\S]*?<span[^>]*class="[^"]*value[^"]*"[^>]*>([\d\s,.'']+)/gi },
-          { key: 'marble', pattern: /<li[^>]*class="[^"]*marble[^"]*"[^>]*>[\s\S]*?<span[^>]*class="[^"]*value[^"]*"[^>]*>([\d\s,.'']+)/gi },
-          { key: 'crystal', pattern: /<li[^>]*class="[^"]*(?:crystal|glass)[^"]*"[^>]*>[\s\S]*?<span[^>]*class="[^"]*value[^"]*"[^>]*>([\d\s,.'']+)/gi },
-          { key: 'sulfur', pattern: /<li[^>]*class="[^"]*sulfu?r[^"]*"[^>]*>[\s\S]*?<span[^>]*class="[^"]*value[^"]*"[^>]*>([\d\s,.'']+)/gi },
-        ];
+      // Affiche un échantillon du HTML extrait
+      console.log('💰 HTML sample:', html.substring(0, 1000));
 
-        for (const { key, pattern } of liPatterns) {
-          const match = pattern.exec(html);
-          if (match) {
-            const value = parseInt(match[1].replace(/[\s,.'']/g, '')) || 0;
-            cost[key as keyof Resources] = value;
-            console.log(`💰 [li] ${key}: ${value}`);
+      // === Extraction des coûts depuis le tableau ikipedia ===
+      // Le tableau a des lignes avec: Niveau | Matériau | Marbre | Temps | ...
+
+      // Cherche toutes les lignes du tableau
+      const rowPattern = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+      let rowMatch;
+      let headerOrder: string[] = [];
+      let foundCosts = false;
+
+      // Premier passage: trouve l'en-tête pour déterminer l'ordre des colonnes
+      const headerMatch = html.match(/<tr[^>]*class="[^"]*header[^"]*"[^>]*>([\s\S]*?)<\/tr>/i) ||
+                          html.match(/<thead[^>]*>([\s\S]*?)<\/thead>/i);
+      if (headerMatch) {
+        const headerHtml = headerMatch[1];
+        // Cherche les titres des colonnes via title ou alt des images, ou le texte
+        const thPattern = /<th[^>]*>([\s\S]*?)<\/th>/gi;
+        let thMatch;
+        while ((thMatch = thPattern.exec(headerHtml)) !== null) {
+          const thContent = thMatch[1].toLowerCase();
+          // Cherche title ou alt dans le contenu
+          const titleMatch = thContent.match(/(?:title|alt)="([^"]+)"/i);
+          if (titleMatch) {
+            headerOrder.push(titleMatch[1].toLowerCase());
+          } else if (thContent.includes('niveau') || thContent.includes('level')) {
+            headerOrder.push('level');
+          } else if (thContent.includes('temps') || thContent.includes('time')) {
+            headerOrder.push('time');
+          } else {
+            headerOrder.push('unknown');
           }
         }
+        console.log('💰 Ordre des colonnes détecté:', headerOrder);
       }
 
-      // === MÉTHODE 3: Extraction depuis un tableau de coûts (ikipedia) ===
-      if (cost.wood === 0 && cost.marble === 0) {
-        console.log('💰 Essai méthode 3: tableau de coûts...');
-
-        // Cherche la ligne du niveau cible
-        const rowPattern = new RegExp(
-          `<tr[^>]*>[\\s\\S]*?<td[^>]*class="[^"]*level[^"]*"[^>]*>\\s*${targetLevel}\\s*<\\/td>([\\s\\S]*?)<\\/tr>`,
-          'i'
-        );
-        const rowMatch = html.match(rowPattern);
-
-        if (rowMatch) {
-          console.log('💰 Ligne niveau', targetLevel, 'trouvée');
-          const rowHtml = rowMatch[1];
-
-          // Extrait toutes les valeurs de la ligne
-          const values: number[] = [];
-          const cellPattern = /<td[^>]*class="[^"]*costs[^"]*"[^>]*>[\s\S]*?([\d\s,.'']+)[\s\S]*?<\/td>/gi;
-          let cellMatch;
-          while ((cellMatch = cellPattern.exec(rowHtml)) !== null) {
-            const value = parseInt(cellMatch[1].replace(/[\s,.'']/g, '')) || 0;
-            values.push(value);
+      // Si pas d'en-tête trouvé, utilise l'ordre par défaut
+      if (headerOrder.length === 0) {
+        // Compte le nombre de colonnes
+        const sampleRow = html.match(/<tr[^>]*>[\s\S]*?<td[^>]*class="[^"]*level[^"]*"[^>]*>[\s\S]*?<\/tr>/i);
+        if (sampleRow) {
+          const tdCount = (sampleRow[0].match(/<td/gi) || []).length;
+          console.log('💰 Nombre de colonnes détecté:', tdCount);
+          // Ordre standard: level, wood, marble, [wine], [crystal], [sulfur], time
+          if (tdCount >= 4) {
+            headerOrder = ['level', 'wood', 'marble', 'time'];
           }
-
-          console.log('💰 Valeurs ligne:', values);
-
-          // Assigne par position (ordre standard Ikariam)
-          if (values.length >= 1) cost.wood = values[0];
-          if (values.length >= 2) cost.marble = values[1];
-          if (values.length >= 3) {
-            // La 3ème colonne peut être le temps ou une autre ressource
-            // Si c'est petit (< 1000), c'est probablement le temps en minutes
-            if (values[2] < 1000) {
-              time = values[2] * 60;
-            } else {
-              cost.wine = values[2];
-            }
+          if (tdCount >= 5) {
+            headerOrder = ['level', 'wood', 'marble', 'wine', 'time'];
           }
-          if (values.length >= 4) cost.crystal = values[3];
-          if (values.length >= 5) cost.sulfur = values[4];
-          if (values.length >= 6) time = values[5] * 60; // Temps en minutes
-        }
-      }
-
-      // === MÉTHODE 4: Cherche les nombres après les icônes de ressources ===
-      if (cost.wood === 0 && cost.marble === 0) {
-        console.log('💰 Essai méthode 4: icônes ressources...');
-
-        // Pattern simple: cherche les spans avec des icônes suivis de nombres
-        const iconPatterns = [
-          { key: 'wood', pattern: /(?:wood|bois|matériau)[^<]*<[^>]*>[\s\S]{0,100}?([\d\s,.'']+)/gi },
-          { key: 'marble', pattern: /(?:marble|marbre)[^<]*<[^>]*>[\s\S]{0,100}?([\d\s,.'']+)/gi },
-          { key: 'wine', pattern: /(?:wine|vin)[^<]*<[^>]*>[\s\S]{0,100}?([\d\s,.'']+)/gi },
-          { key: 'crystal', pattern: /(?:crystal|cristal|glass|verre)[^<]*<[^>]*>[\s\S]{0,100}?([\d\s,.'']+)/gi },
-          { key: 'sulfur', pattern: /(?:sulfur|soufre)[^<]*<[^>]*>[\s\S]{0,100}?([\d\s,.'']+)/gi },
-        ];
-
-        for (const { key, pattern } of iconPatterns) {
-          const match = pattern.exec(html);
-          if (match) {
-            const value = parseInt(match[1].replace(/[\s,.'']/g, '')) || 0;
-            if (value > 0) {
-              cost[key as keyof Resources] = value;
-              console.log(`💰 [icon] ${key}: ${value}`);
-            }
+          if (tdCount >= 6) {
+            headerOrder = ['level', 'wood', 'wine', 'marble', 'crystal', 'time'];
+          }
+          if (tdCount >= 7) {
+            headerOrder = ['level', 'wood', 'wine', 'marble', 'crystal', 'sulfur', 'time'];
           }
         }
+        console.log('💰 Ordre par défaut utilisé:', headerOrder);
       }
 
-      // Extraction du temps si pas encore trouvé
-      if (time === 0) {
-        // Cherche format HH:MM:SS ou similaire
-        const timePatterns = [
-          /data-(?:end)?time="(\d+)"/i,
-          /countdown[^>]*>[\s\S]*?(\d+):(\d+):(\d+)/i,
-          /(?:durée|duration|temps|time)[^>]*>[\s\S]*?(\d+)\s*[hH]\s*(\d+)/i,
-        ];
+      // Cherche la ligne du niveau cible
+      const levelRowPattern = new RegExp(
+        `<tr[^>]*>[\\s\\S]*?<td[^>]*>\\s*${targetLevel}\\s*<\\/td>([\\s\\S]*?)<\\/tr>`,
+        'i'
+      );
+      const levelRowMatch = html.match(levelRowPattern);
 
-        for (const pattern of timePatterns) {
-          const match = html.match(pattern);
-          if (match) {
-            if (match[2]) {
-              // Format avec heures et minutes
-              time = (parseInt(match[1]) || 0) * 3600 + (parseInt(match[2]) || 0) * 60 + (parseInt(match[3]) || 0);
-            } else {
-              // Timestamp ou durée simple
-              time = parseInt(match[1]) || 0;
-            }
-            if (time > 0) {
-              console.log(`💰 Temps trouvé: ${time}s`);
+      if (levelRowMatch) {
+        console.log('💰 Ligne niveau', targetLevel, 'trouvée');
+        const rowContent = levelRowMatch[0];
+
+        // Extrait toutes les valeurs des cellules
+        const cellPattern = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+        const values: string[] = [];
+        let cellMatch;
+        while ((cellMatch = cellPattern.exec(rowContent)) !== null) {
+          // Nettoie le contenu de la cellule
+          let cellValue = cellMatch[1]
+            .replace(/<[^>]+>/g, '') // Enlève les balises HTML
+            .replace(/&nbsp;/g, ' ')
+            .replace(/['']/g, '')
+            .trim();
+          values.push(cellValue);
+        }
+        console.log('💰 Valeurs brutes:', values);
+
+        // Parse les valeurs numériques
+        const numericValues = values.map(v => {
+          // Extrait le premier nombre trouvé
+          const numMatch = v.match(/([\d\s,.]+)/);
+          if (numMatch) {
+            return parseInt(numMatch[1].replace(/[\s,.]/g, '')) || 0;
+          }
+          return 0;
+        });
+        console.log('💰 Valeurs numériques:', numericValues);
+
+        // Assigne les valeurs selon l'ordre des colonnes
+        // La première colonne est généralement le niveau, on la saute
+        if (numericValues.length >= 2) {
+          // Indices: 0=level, 1=wood, 2=marble ou wine, 3=time ou autre, etc.
+          cost.wood = numericValues[1] || 0;
+          if (numericValues.length >= 3) cost.marble = numericValues[2] || 0;
+
+          // Le temps est souvent la dernière colonne ou l'avant-dernière
+          // On cherche une valeur qui ressemble à des minutes (< 10000)
+          for (let i = numericValues.length - 1; i >= 3; i--) {
+            if (numericValues[i] > 0 && numericValues[i] < 10000) {
+              time = numericValues[i] * 60; // Convertit minutes en secondes
               break;
+            }
+          }
+
+          // Si plus de 4 colonnes, les autres sont probablement wine, crystal, sulfur
+          if (numericValues.length >= 5) {
+            // Réorganise selon le nombre de colonnes
+            // Format typique: level, wood, wine, marble, [crystal], [sulfur], time
+            cost.wine = numericValues[2] || 0;
+            cost.marble = numericValues[3] || 0;
+            if (numericValues.length >= 6) {
+              cost.crystal = numericValues[4] || 0;
+            }
+            if (numericValues.length >= 7) {
+              cost.sulfur = numericValues[5] || 0;
+            }
+          }
+
+          foundCosts = true;
+          console.log('💰 Coûts extraits:', cost, 'Temps:', time);
+        }
+      } else {
+        console.log('💰 Ligne niveau', targetLevel, 'NON trouvée');
+      }
+
+      // Si pas de coûts trouvés, essaie une approche alternative
+      if (!foundCosts) {
+        console.log('💰 Fallback: recherche pattern alternatif...');
+
+        // Cherche les patterns de ressources directement dans le HTML
+        const resourcePatterns = [
+          { key: 'wood', patterns: [/matériau[^<]*?([\d\s,.]+)/gi, /wood[^<]*?([\d\s,.]+)/gi, /bois[^<]*?([\d\s,.]+)/gi] },
+          { key: 'marble', patterns: [/marbre[^<]*?([\d\s,.]+)/gi, /marble[^<]*?([\d\s,.]+)/gi] },
+          { key: 'wine', patterns: [/vin[^<]*?([\d\s,.]+)/gi, /wine[^<]*?([\d\s,.]+)/gi] },
+          { key: 'crystal', patterns: [/cristal[^<]*?([\d\s,.]+)/gi, /crystal[^<]*?([\d\s,.]+)/gi] },
+          { key: 'sulfur', patterns: [/soufre[^<]*?([\d\s,.]+)/gi, /sulfur[^<]*?([\d\s,.]+)/gi] },
+        ];
+
+        for (const { key, patterns } of resourcePatterns) {
+          for (const pattern of patterns) {
+            const match = pattern.exec(html);
+            if (match) {
+              const value = parseInt(match[1].replace(/[\s,.]/g, '')) || 0;
+              if (value > 0 && cost[key as keyof Resources] === 0) {
+                cost[key as keyof Resources] = value;
+                console.log(`💰 [fallback] ${key}: ${value}`);
+              }
             }
           }
         }
