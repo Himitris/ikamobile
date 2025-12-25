@@ -64,7 +64,8 @@ export const CityDetailScreen: React.FC<CityDetailScreenProps> = ({
                   const costResult = await ikariamApi.getBuildingUpgradeCost(
                     cityId,
                     building.position,
-                    building.type
+                    building.type,
+                    building.level
                   );
 
                   if (costResult.success && costResult.data) {
@@ -130,7 +131,8 @@ export const CityDetailScreen: React.FC<CityDetailScreenProps> = ({
         const costResult = await ikariamApi.getBuildingUpgradeCost(
           cityId,
           building.position,
-          building.type
+          building.type,
+          building.level
         );
 
         if (costResult.success && costResult.data) {

@@ -821,7 +821,8 @@ export class IkariamApi {
   async getBuildingUpgradeCost(
     cityId: string,
     position: number,
-    buildingType: string
+    buildingType: string,
+    currentLevel: number = 0
   ): Promise<ApiResponse<{ cost: Resources; time: number }>> {
     if (!this.session) {
       return { success: false, error: 'Aucune session active' };
@@ -829,7 +830,8 @@ export class IkariamApi {
 
     try {
       const numericCityId = cityId.replace('city_', '');
-      console.log(`💰 [v2] getBuildingUpgradeCost: cityId=${numericCityId}, position=${position}, type=${buildingType}`);
+      const targetLevel = currentLevel + 1;
+      console.log(`💰 [v2] getBuildingUpgradeCost: cityId=${numericCityId}, position=${position}, type=${buildingType}, niveau actuel=${currentLevel}, cible=${targetLevel}`);
 
       // Initialise les coûts
       const cost: Resources = { wood: 0, wine: 0, marble: 0, crystal: 0, sulfur: 0 };
@@ -1022,11 +1024,13 @@ export class IkariamApi {
           }
 
           console.log('💰 Ordre des ressources:', resourceOrder);
+          console.log('💰 Recherche coûts pour niveau cible:', targetLevel);
 
-          // Trouver la ligne du niveau avec des coûts
+          // Trouver la ligne du niveau cible (currentLevel + 1)
           // Format: <td class="level">N</td><td class="costs">...</td>...
           const levelPattern = /<tr[^>]*>[\s\S]*?<td[^>]*class="[^"]*level[^"]*"[^>]*>(\d+)<\/td>([\s\S]*?)<\/tr>/gi;
           let levelMatch;
+          let foundTargetLevel = false;
 
           while ((levelMatch = levelPattern.exec(costsHtml)) !== null) {
             const level = parseInt(levelMatch[1]);
@@ -1044,17 +1048,24 @@ export class IkariamApi {
               rowCosts.push(value);
             }
 
-            if (rowCosts.length > 0 && rowCosts.some(v => v > 0)) {
-              console.log(`💰 Niveau ${level}: coûts =`, rowCosts);
+            // Cherche le niveau cible (currentLevel + 1)
+            if (level === targetLevel && rowCosts.length > 0) {
+              console.log(`💰 ✅ Niveau ${level} (CIBLE): coûts =`, rowCosts);
+              foundTargetLevel = true;
 
               // Assigne les coûts - le premier est toujours le bois dans Ikariam
               if (rowCosts.length >= 1) cost.wood = rowCosts[0];
               if (rowCosts.length >= 2) cost.marble = rowCosts[1]; // 2ème ressource souvent marbre
-              // Le temps est généralement dans une colonne séparée ou le dernier élément
 
               console.log('💰 Coûts assignés:', cost);
-              break; // On prend le premier niveau avec des coûts
+              break;
+            } else if (rowCosts.length > 0 && rowCosts.some(v => v > 0)) {
+              console.log(`💰 Niveau ${level}: coûts =`, rowCosts, level === targetLevel ? '(CIBLE)' : '');
             }
+          }
+
+          if (!foundTargetLevel) {
+            console.log('💰 ⚠️ Niveau cible', targetLevel, 'non trouvé dans le tableau');
           }
         }
       } else {
