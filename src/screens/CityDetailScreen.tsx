@@ -192,14 +192,21 @@ export const CityDetailScreen: React.FC<CityDetailScreenProps> = ({
           style: hasEnoughResources ? 'default' : 'destructive',
           onPress: async () => {
             try {
-              const result = await ikariamApi.startConstruction(cityId, building.position.toString());
+              console.log('🔨 Lancement upgrade:', building.name, 'position:', building.position);
+              const result = await ikariamApi.startConstruction(
+                cityId,
+                building.position,
+                building.type
+              );
               if (result.success) {
-                Alert.alert('Succès', 'Construction lancée !');
-                loadCityDetails();
+                Alert.alert('Succès', result.data?.message || 'Construction lancée !');
+                // Rafraîchit les détails après un court délai
+                setTimeout(() => loadCityDetails(), 1000);
               } else {
                 Alert.alert('Erreur', result.error || 'Impossible de lancer la construction');
               }
             } catch (error: any) {
+              console.error('🔨 Erreur upgrade:', error);
               Alert.alert('Erreur', error.message || 'Une erreur est survenue');
             }
           },

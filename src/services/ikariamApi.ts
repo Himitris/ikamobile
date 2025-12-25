@@ -1007,14 +1007,21 @@ export class IkariamApi {
           }
 
           // Si pas de title/alt, essaye de compter les colonnes et utilise l'ordre standard Ikariam
-          // Ordre standard: Bois, Vin, Marbre, Cristal, Soufre, Temps
+          // Ordre standard complet: Bois, Vin, Marbre, Cristal, Soufre, Temps
           if (resourceOrder.length === 0) {
             // Compte le nombre de colonnes de coûts
             const thCount = (costsHtml.match(/<th[^>]*class="[^"]*costs[^"]*"/gi) || []).length;
             console.log('💰 Nombre de colonnes costs:', thCount);
-            // L'ordre standard Ikariam pour les coûts de bâtiment
-            const standardOrder = ['wood', 'marble', 'time'];
-            if (thCount >= 3) {
+
+            // L'ordre standard Ikariam pour les coûts de bâtiment (6 colonnes max)
+            // Bois, Vin, Marbre, Cristal, Soufre, Temps
+            if (thCount >= 6) {
+              resourceOrder.push('wood', 'wine', 'marble', 'crystal', 'sulfur', 'time');
+            } else if (thCount >= 5) {
+              resourceOrder.push('wood', 'wine', 'marble', 'crystal', 'time');
+            } else if (thCount >= 4) {
+              resourceOrder.push('wood', 'wine', 'marble', 'time');
+            } else if (thCount >= 3) {
               resourceOrder.push('wood', 'marble', 'time');
             } else if (thCount >= 2) {
               resourceOrder.push('wood', 'time');
@@ -1053,11 +1060,19 @@ export class IkariamApi {
               console.log(`💰 ✅ Niveau ${level} (CIBLE): coûts =`, rowCosts);
               foundTargetLevel = true;
 
-              // Assigne les coûts - le premier est toujours le bois dans Ikariam
-              if (rowCosts.length >= 1) cost.wood = rowCosts[0];
-              if (rowCosts.length >= 2) cost.marble = rowCosts[1]; // 2ème ressource souvent marbre
+              // Assigne les coûts selon l'ordre des ressources détecté
+              for (let i = 0; i < Math.min(resourceOrder.length, rowCosts.length); i++) {
+                const resourceName = resourceOrder[i];
+                const value = rowCosts[i];
+                if (resourceName === 'wood') cost.wood = value;
+                else if (resourceName === 'wine') cost.wine = value;
+                else if (resourceName === 'marble') cost.marble = value;
+                else if (resourceName === 'crystal') cost.crystal = value;
+                else if (resourceName === 'sulfur') cost.sulfur = value;
+                else if (resourceName === 'time') time = value * 60; // Convertit en secondes si en minutes
+              }
 
-              console.log('💰 Coûts assignés:', cost);
+              console.log('💰 Coûts assignés:', cost, 'Temps:', time);
               break;
             } else if (rowCosts.length > 0 && rowCosts.some(v => v > 0)) {
               console.log(`💰 Niveau ${level}: coûts =`, rowCosts, level === targetLevel ? '(CIBLE)' : '');
@@ -1121,42 +1136,88 @@ export class IkariamApi {
   }
 
   /**
-   * Lance la construction d'un bâtiment
+   * Lance l'upgrade d'un bâtiment
+   * Basé sur l'API Ikabot: envoie une requête POST pour démarrer la construction
    */
-  async startConstruction(cityId: string, buildingPosition: string): Promise<ApiResponse> {
+  async startConstruction(
+    cityId: string,
+    buildingPosition: number,
+    buildingType: string
+  ): Promise<ApiResponse<{ message: string }>> {
     if (!this.session) {
       return { success: false, error: 'Aucune session active' };
     }
 
     try {
-      // Extrait l'ID numérique
       const numericCityId = cityId.replace('city_', '');
-      console.log(`🔨 startConstruction: cityId=${numericCityId}, position=${buildingPosition}`);
+      console.log(`🔨 startConstruction: cityId=${numericCityId}, position=${buildingPosition}, type=${buildingType}`);
 
-      // Récupère d'abord le token CSRF depuis la page de la ville
+      // Étape 1: Récupère le token CSRF
       const cityResponse = await this.request(`/index.php?view=city&cityId=${numericCityId}`);
-      const actionRequestMatch = cityResponse.data.match(/actionRequest[^'"]*['"]([^'"]+)/);
+      let actionRequest = '';
 
-      if (!actionRequestMatch) {
+      // Cherche actionRequest dans le HTML
+      const match = cityResponse.data.match(/actionRequest\s*[=:]\s*["']([a-zA-Z0-9]+)["']/);
+      if (match) {
+        actionRequest = match[1];
+      }
+
+      if (!actionRequest) {
+        console.error('🔨 Token CSRF non trouvé');
         return { success: false, error: 'Token CSRF non trouvé' };
       }
 
-      const actionRequest = actionRequestMatch[1];
+      console.log('🔨 actionRequest:', actionRequest.substring(0, 10) + '...');
 
-      // Envoie la requête de construction
-      // Format basé sur Ikabot
-      const response = await this.request(
-        `/index.php?action=CityScreen&function=build&cityId=${numericCityId}&position=${buildingPosition}&actionRequest=${actionRequest}`,
-        { method: 'POST' }
-      );
+      // Étape 2: Envoie la requête d'upgrade
+      // Format Ikabot: action=CityScreen&function=upgradeBuilding&cityId=X&position=Y&level=Z&activeTab=tabBuilding
+      const upgradeUrl = `/index.php?action=CityScreen&function=upgradeBuilding&actionRequest=${actionRequest}&cityId=${numericCityId}&position=${buildingPosition}&backgroundView=city&currentCityId=${numericCityId}&templateView=city&ajax=1`;
 
-      console.log('🔨 startConstruction: Réponse:', response.status, response.data.substring(0, 200));
+      console.log('🔨 URL upgrade:', upgradeUrl);
 
-      if (response.data.includes('error') || response.status !== 200) {
-        return { success: false, error: 'Échec de la construction' };
+      const response = await this.request(upgradeUrl, { method: 'GET' });
+
+      console.log('🔨 Réponse upgrade:', response.status, response.data.substring(0, 300));
+
+      // Vérifie si la réponse contient une erreur
+      if (response.status !== 200) {
+        return { success: false, error: 'Erreur serveur' };
       }
 
-      return { success: true };
+      // Parse la réponse JSON-RPC si possible
+      if (response.data.startsWith('[["')) {
+        try {
+          const jsonData = JSON.parse(response.data);
+
+          // Cherche des indicateurs d'erreur dans la réponse
+          for (const [name, data] of jsonData) {
+            if (name === 'error' || (typeof data === 'object' && data?.error)) {
+              const errorMsg = data?.error || data?.message || 'Erreur inconnue';
+              console.error('🔨 Erreur dans réponse:', errorMsg);
+              return { success: false, error: errorMsg };
+            }
+          }
+
+          console.log('🔨 ✅ Upgrade lancé avec succès!');
+          return {
+            success: true,
+            data: { message: 'Construction lancée avec succès!' }
+          };
+        } catch (e) {
+          console.warn('🔨 Erreur parsing réponse:', e);
+        }
+      }
+
+      // Vérifie si c'est une page d'erreur HTML
+      if (response.data.includes('errorMessage') || response.data.includes('class="error"')) {
+        return { success: false, error: 'Ressources insuffisantes ou construction en cours' };
+      }
+
+      // Par défaut, considère que c'est un succès si pas d'erreur explicite
+      return {
+        success: true,
+        data: { message: 'Construction lancée!' }
+      };
     } catch (error: any) {
       console.error('🔨 startConstruction: Erreur:', error);
       return {
