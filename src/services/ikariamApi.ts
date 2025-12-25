@@ -836,7 +836,8 @@ export class IkariamApi {
       let time = 0;
 
       // Étape 1: Récupérer le token CSRF depuis updateGlobalData
-      const cityResponse = await this.request(`/index.php?view=city&cityId=${numericCityId}`);
+      // IMPORTANT: ajax=1 est nécessaire pour obtenir une réponse JSON-RPC au lieu de HTML
+      const cityResponse = await this.request(`/index.php?view=city&cityId=${numericCityId}&ajax=1`);
       let actionRequest = '';
 
       // Parse JSON-RPC pour extraire actionRequest
