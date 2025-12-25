@@ -867,6 +867,16 @@ export class IkariamApi {
 
       console.log('💰 HTML length:', html.length);
 
+      // Debug: affiche un échantillon du HTML pour comprendre le format
+      console.log('💰 HTML sample (2000 chars):', html.substring(0, 2000));
+
+      // Cherche les patterns de coûts possibles dans le HTML
+      const hasUpgradeButton = html.includes('upgradeBuilding') || html.includes('upgrade_building');
+      const hasResourceClass = html.includes('class="resources"') || html.includes('class="resource"');
+      const hasValueClass = html.includes('class="value"') || html.includes('class="amount"');
+      const hasCostSection = html.includes('cost') || html.includes('Cost');
+      console.log('💰 Patterns trouvés:', { hasUpgradeButton, hasResourceClass, hasValueClass, hasCostSection });
+
       // === MÉTHODE 1: Cherche les coûts dans la section "upgradeAction" ===
       // Format: <li class="resources"><span class="icon wood">123</span>...
       const upgradeSection = html.match(/class="[^"]*upgradeAction[^"]*"[\s\S]*?<\/div>/i)?.[0] || '';
