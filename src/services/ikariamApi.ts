@@ -829,7 +829,7 @@ export class IkariamApi {
 
     try {
       const numericCityId = cityId.replace('city_', '');
-      console.log(`💰 getBuildingUpgradeCost: cityId=${numericCityId}, position=${position}, type=${buildingType}`);
+      console.log(`💰 [v2] getBuildingUpgradeCost: cityId=${numericCityId}, position=${position}, type=${buildingType}`);
 
       // Initialise les coûts
       const cost: Resources = { wood: 0, wine: 0, marble: 0, crystal: 0, sulfur: 0 };
@@ -840,27 +840,35 @@ export class IkariamApi {
       let actionRequest = '';
 
       // Parse JSON-RPC pour extraire actionRequest
+      console.log('💰 [v2] cityResponse starts with:', cityResponse.data.substring(0, 50));
+
       if (cityResponse.data.startsWith('[["')) {
         try {
           const jsonData = JSON.parse(cityResponse.data);
+          console.log('💰 [v2] JSON-RPC parsé, nombre d\'éléments:', jsonData.length);
           for (const [name, data] of jsonData) {
+            console.log('💰 [v2] Pattern trouvé:', name);
             if (name === 'updateGlobalData' && data?.actionRequest) {
               actionRequest = data.actionRequest;
+              console.log('💰 [v2] actionRequest trouvé dans updateGlobalData');
               break;
             }
           }
         } catch (e) {
-          console.warn('💰 Erreur extraction actionRequest:', e);
+          console.warn('💰 [v2] Erreur extraction actionRequest:', e);
         }
       }
 
       if (!actionRequest) {
         // Fallback: cherche dans le HTML
         const match = cityResponse.data.match(/"actionRequest"\s*:\s*"([^"]+)"/);
-        if (match) actionRequest = match[1];
+        if (match) {
+          actionRequest = match[1];
+          console.log('💰 [v2] actionRequest trouvé via regex fallback');
+        }
       }
 
-      console.log('💰 actionRequest:', actionRequest ? actionRequest.substring(0, 10) + '...' : 'non trouvé');
+      console.log('💰 [v2] actionRequest:', actionRequest ? actionRequest.substring(0, 10) + '...' : 'NON TROUVÉ');
 
       if (!actionRequest) {
         return { success: false, error: 'Token CSRF non trouvé' };
@@ -868,58 +876,75 @@ export class IkariamApi {
 
       // Étape 2: Requête buildingDetail avec templateView=ikipedia (comme Ikabot)
       const detailUrl = `/index.php?view=buildingDetail&buildingId=0&helpId=1&backgroundView=city&currentCityId=${numericCityId}&templateView=ikipedia&actionRequest=${actionRequest}&ajax=1`;
-      console.log('💰 URL buildingDetail:', detailUrl);
+      console.log('💰 [v2] URL buildingDetail:', detailUrl);
 
       const detailResponse = await this.request(detailUrl);
       let buildingHtml = '';
+
+      console.log('💰 [v2] detailResponse starts with:', detailResponse.data.substring(0, 100));
 
       // Parse JSON-RPC pour extraire le HTML du template
       if (detailResponse.data.startsWith('[["')) {
         try {
           const jsonData = JSON.parse(detailResponse.data);
+          console.log('💰 [v2] buildingDetail JSON-RPC parsé, éléments:', jsonData.length);
+
           // Le HTML est dans jsonData[1][1][1] selon Ikabot
           if (jsonData[1] && jsonData[1][1] && jsonData[1][1][1]) {
             buildingHtml = jsonData[1][1][1];
+            console.log('💰 [v2] HTML trouvé dans jsonData[1][1][1]');
           } else {
             // Cherche dans updateTemplateData
             for (const [name, data] of jsonData) {
-              if (name === 'updateTemplateData' && typeof data === 'string') {
-                buildingHtml = data;
-                break;
+              if (name === 'updateTemplateData') {
+                console.log('💰 [v2] updateTemplateData trouvé, type:', typeof data);
+                if (typeof data === 'string') {
+                  buildingHtml = data;
+                  break;
+                }
               }
             }
           }
         } catch (e) {
-          console.warn('💰 Erreur parsing buildingDetail:', e);
+          console.warn('💰 [v2] Erreur parsing buildingDetail:', e);
         }
       }
 
       if (!buildingHtml) {
-        console.log('💰 Pas de HTML trouvé dans buildingDetail');
+        console.log('💰 [v2] Pas de HTML trouvé dans buildingDetail - ÉCHEC');
         return { success: true, data: { cost, time } };
       }
 
-      console.log('💰 buildingHtml length:', buildingHtml.length);
+      console.log('💰 [v2] buildingHtml length:', buildingHtml.length);
+      console.log('💰 [v2] buildingHtml sample:', buildingHtml.substring(0, 200));
 
       // Étape 3: Trouver le bouton du bâtiment spécifique et extraire l'URL des coûts
       // Pattern: <div class="button_building {buildingType}" onclick="ajaxHandlerCall('{URL}')">
+      console.log('💰 [v2] Recherche bouton pour:', buildingType);
+
+      // Cherche d'abord tous les boutons de bâtiments pour debug
+      const allButtons = buildingHtml.match(/button_building\s+(\w+)/gi);
+      console.log('💰 [v2] Boutons trouvés dans HTML:', allButtons?.slice(0, 10) || 'aucun');
+
       const buttonPattern = new RegExp(
         `<div[^>]*class="[^"]*button_building\\s+${buildingType}[^"]*"[^>]*onclick="ajaxHandlerCall\\('\\?([^']+)'\\)`,
         'i'
       );
-      const buttonMatch = buildingHtml.match(buttonPattern);
+      let buttonMatch = buildingHtml.match(buttonPattern);
 
       if (!buttonMatch) {
-        console.log('💰 Bouton du bâtiment non trouvé, essai pattern alternatif...');
+        console.log('💰 [v2] Pattern principal non trouvé, essai alternatif...');
         // Pattern alternatif plus souple
         const altPattern = new RegExp(
-          `button_building[^>]*${buildingType}[^>]*ajaxHandlerCall\\('\\?([^']+)'`,
+          `button_building[^"]*${buildingType}[^>]*onclick="[^"]*\\?([^'"&]+)`,
           'i'
         );
-        const altMatch = buildingHtml.match(altPattern);
-        if (altMatch) {
-          console.log('💰 Pattern alternatif trouvé');
+        buttonMatch = buildingHtml.match(altPattern);
+        if (buttonMatch) {
+          console.log('💰 [v2] Pattern alternatif trouvé:', buttonMatch[1]?.substring(0, 50));
         }
+      } else {
+        console.log('💰 [v2] Pattern principal trouvé:', buttonMatch[1]?.substring(0, 50));
       }
 
       if (buttonMatch) {
@@ -1003,11 +1028,13 @@ export class IkariamApi {
           }
         }
       } else {
-        console.log('💰 Aucun bouton trouvé, essai direct sur la page du bâtiment...');
+        console.log('💰 [v2] Aucun bouton trouvé, essai direct sur la page du bâtiment...');
 
         // Fallback: requête directe sur la page du bâtiment
         const directUrl = `/index.php?view=${buildingType}&cityId=${numericCityId}&position=${position}`;
+        console.log('💰 [v2] URL directe fallback:', directUrl);
         const directResponse = await this.request(directUrl);
+        console.log('💰 [v2] Réponse directe length:', directResponse.data.length);
 
         // Cherche les coûts dans la réponse directe
         if (directResponse.data.startsWith('[["')) {
@@ -1037,7 +1064,7 @@ export class IkariamApi {
         }
       }
 
-      console.log('💰 Résultat final - Coûts:', cost, 'Temps:', time);
+      console.log('💰 [v2] Résultat final - Coûts:', cost, 'Temps:', time);
 
       return {
         success: true,
