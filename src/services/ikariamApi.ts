@@ -835,37 +835,50 @@ export class IkariamApi {
       const cost: Resources = { wood: 0, wine: 0, marble: 0, crystal: 0, sulfur: 0 };
       let time = 0;
 
-      // Étape 1: Récupérer le token CSRF depuis updateGlobalData
-      // IMPORTANT: ajax=1 est nécessaire pour obtenir une réponse JSON-RPC au lieu de HTML
-      const cityResponse = await this.request(`/index.php?view=city&cityId=${numericCityId}&ajax=1`);
+      // Étape 1: Récupérer le token CSRF depuis la page HTML complète
+      // On NE met PAS ajax=1 car le actionRequest est dans le HTML initial, pas dans les réponses AJAX
+      const cityResponse = await this.request(`/index.php?view=city&cityId=${numericCityId}`);
       let actionRequest = '';
 
-      // Parse JSON-RPC pour extraire actionRequest
+      console.log('💰 [v2] cityResponse length:', cityResponse.data.length);
       console.log('💰 [v2] cityResponse starts with:', cityResponse.data.substring(0, 50));
 
-      if (cityResponse.data.startsWith('[["')) {
-        try {
-          const jsonData = JSON.parse(cityResponse.data);
-          console.log('💰 [v2] JSON-RPC parsé, nombre d\'éléments:', jsonData.length);
-          for (const [name, data] of jsonData) {
-            console.log('💰 [v2] Pattern trouvé:', name);
-            if (name === 'updateGlobalData' && data?.actionRequest) {
-              actionRequest = data.actionRequest;
-              console.log('💰 [v2] actionRequest trouvé dans updateGlobalData');
-              break;
-            }
-          }
-        } catch (e) {
-          console.warn('💰 [v2] Erreur extraction actionRequest:', e);
+      // Le actionRequest est dans le HTML de différentes façons possibles:
+      // 1. Dans une variable JS: actionRequest = "xxxxx"
+      // 2. Dans un attribut: data-action-request="xxxxx"
+      // 3. Dans du JSON embarqué: "actionRequest":"xxxxx"
+
+      // Pattern 1: Variable JavaScript
+      let match = cityResponse.data.match(/actionRequest\s*[=:]\s*["']([a-zA-Z0-9]+)["']/);
+      if (match) {
+        actionRequest = match[1];
+        console.log('💰 [v2] actionRequest trouvé via pattern JS variable');
+      }
+
+      // Pattern 2: Dans du JSON
+      if (!actionRequest) {
+        match = cityResponse.data.match(/"actionRequest"\s*:\s*"([^"]+)"/);
+        if (match) {
+          actionRequest = match[1];
+          console.log('💰 [v2] actionRequest trouvé via pattern JSON');
         }
       }
 
+      // Pattern 3: Input hidden
       if (!actionRequest) {
-        // Fallback: cherche dans le HTML
-        const match = cityResponse.data.match(/"actionRequest"\s*:\s*"([^"]+)"/);
+        match = cityResponse.data.match(/name=["']actionRequest["'][^>]*value=["']([^"']+)["']/);
         if (match) {
           actionRequest = match[1];
-          console.log('💰 [v2] actionRequest trouvé via regex fallback');
+          console.log('💰 [v2] actionRequest trouvé via input hidden');
+        }
+      }
+
+      // Pattern 4: Dans l'URL d'un lien
+      if (!actionRequest) {
+        match = cityResponse.data.match(/actionRequest=([a-zA-Z0-9]+)/);
+        if (match) {
+          actionRequest = match[1];
+          console.log('💰 [v2] actionRequest trouvé via URL param');
         }
       }
 
