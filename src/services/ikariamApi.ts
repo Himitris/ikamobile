@@ -1061,15 +1061,31 @@ export class IkariamApi {
               foundTargetLevel = true;
 
               // Assigne les coûts selon l'ordre des ressources détecté
+              // Supporte les noms en français ET en anglais
               for (let i = 0; i < Math.min(resourceOrder.length, rowCosts.length); i++) {
-                const resourceName = resourceOrder[i];
+                const resourceName = resourceOrder[i].toLowerCase();
                 const value = rowCosts[i];
-                if (resourceName === 'wood') cost.wood = value;
-                else if (resourceName === 'wine') cost.wine = value;
-                else if (resourceName === 'marble') cost.marble = value;
-                else if (resourceName === 'crystal') cost.crystal = value;
-                else if (resourceName === 'sulfur') cost.sulfur = value;
-                else if (resourceName === 'time') time = value * 60; // Convertit en secondes si en minutes
+
+                // Mapping français + anglais
+                if (resourceName.includes('bois') || resourceName.includes('wood') || resourceName.includes('matériau')) {
+                  cost.wood = value;
+                } else if (resourceName.includes('vin') || resourceName.includes('wine')) {
+                  cost.wine = value;
+                } else if (resourceName.includes('marbre') || resourceName.includes('marble')) {
+                  cost.marble = value;
+                } else if (resourceName.includes('cristal') || resourceName.includes('crystal') || resourceName.includes('verre') || resourceName.includes('glass')) {
+                  cost.crystal = value;
+                } else if (resourceName.includes('soufre') || resourceName.includes('sulfur')) {
+                  cost.sulfur = value;
+                } else if (resourceName.includes('temps') || resourceName.includes('time')) {
+                  time = value * 60; // Convertit en secondes si en minutes
+                } else {
+                  // Si on ne reconnaît pas le nom mais c'est la première colonne, c'est probablement du bois
+                  if (i === 0 && cost.wood === 0) {
+                    cost.wood = value;
+                    console.log(`💰 Ressource inconnue "${resourceName}" assignée à wood (position 0)`);
+                  }
+                }
               }
 
               console.log('💰 Coûts assignés:', cost, 'Temps:', time);
