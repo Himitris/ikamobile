@@ -991,52 +991,68 @@ export class IkariamApi {
         if (costsHtml) {
           console.log('💰 costsHtml length:', costsHtml.length);
 
-          // Parse les coûts depuis le tableau HTML (comme Ikabot)
-          // Format: <td class="costs"><div...>1,234</div></td>
-          // Les types de ressources sont dans <th class="costs"><img src=".../{resource}.png"/>
+          // Parse les coûts depuis le tableau HTML
+          // Ikariam utilise des URLs hashées pour les images, donc on ne peut pas identifier
+          // les ressources par le nom du fichier. On utilise l'attribut title ou alt.
 
-          // Trouver les types de ressources (ordre des colonnes)
+          // Cherche les en-têtes avec title ou alt pour identifier les ressources
           const resourceOrder: string[] = [];
-          const thPattern = /<th class="costs"><img[^>]*src="[^"]*\/(\w+)\.png"/gi;
+          // Pattern pour trouver: <th class="costs"><img ... title="Bois" ou alt="Bois"
+          const thPattern = /<th[^>]*class="[^"]*costs[^"]*"[^>]*>[\s\S]*?<img[^>]*(?:title|alt)="([^"]+)"[^>]*>/gi;
           let thMatch;
           while ((thMatch = thPattern.exec(costsHtml)) !== null) {
             resourceOrder.push(thMatch[1].toLowerCase());
           }
+
+          // Si pas de title/alt, essaye de compter les colonnes et utilise l'ordre standard Ikariam
+          // Ordre standard: Bois, Vin, Marbre, Cristal, Soufre, Temps
+          if (resourceOrder.length === 0) {
+            // Compte le nombre de colonnes de coûts
+            const thCount = (costsHtml.match(/<th[^>]*class="[^"]*costs[^"]*"/gi) || []).length;
+            console.log('💰 Nombre de colonnes costs:', thCount);
+            // L'ordre standard Ikariam pour les coûts de bâtiment
+            const standardOrder = ['wood', 'marble', 'time'];
+            if (thCount >= 3) {
+              resourceOrder.push('wood', 'marble', 'time');
+            } else if (thCount >= 2) {
+              resourceOrder.push('wood', 'time');
+            } else {
+              resourceOrder.push('wood');
+            }
+          }
+
           console.log('💰 Ordre des ressources:', resourceOrder);
 
-          // Trouver la ligne du niveau actuel+1 (prochain upgrade)
+          // Trouver la ligne du niveau avec des coûts
           // Format: <td class="level">N</td><td class="costs">...</td>...
-          const levelPattern = /<tr[^>]*>[\s\S]*?<td class="level">(\d+)<\/td>([\s\S]*?)<\/tr>/gi;
+          const levelPattern = /<tr[^>]*>[\s\S]*?<td[^>]*class="[^"]*level[^"]*"[^>]*>(\d+)<\/td>([\s\S]*?)<\/tr>/gi;
           let levelMatch;
-          let currentLevel = 0;
-
-          // Récupère le niveau actuel depuis cityInfo (déjà dans le contexte)
-          // Pour l'instant, on prend le premier niveau disponible avec des coûts
 
           while ((levelMatch = levelPattern.exec(costsHtml)) !== null) {
             const level = parseInt(levelMatch[1]);
             const rowHtml = levelMatch[2];
 
             // Extraire les valeurs de coûts de cette ligne
-            const costPattern = /<td class="costs"[^>]*>[\s\S]*?>([\d,.\s\xa0]+)</g;
+            // Pattern plus robuste pour capturer les nombres
+            const costPattern = /<td[^>]*class="[^"]*costs[^"]*"[^>]*>[\s\S]*?([\d,.'\s\xa0]+)[\s\S]*?<\/td>/gi;
             const rowCosts: number[] = [];
             let costMatch;
             while ((costMatch = costPattern.exec(rowHtml)) !== null) {
-              const value = parseInt(costMatch[1].replace(/[,.\s\xa0]/g, '')) || 0;
+              // Nettoie le nombre (enlève espaces, virgules, points comme séparateurs de milliers)
+              const cleanValue = costMatch[1].replace(/[,.''\s\xa0]/g, '');
+              const value = parseInt(cleanValue) || 0;
               rowCosts.push(value);
             }
 
             if (rowCosts.length > 0 && rowCosts.some(v => v > 0)) {
               console.log(`💰 Niveau ${level}: coûts =`, rowCosts);
-              // Associe les coûts aux ressources
-              for (let i = 0; i < Math.min(resourceOrder.length, rowCosts.length); i++) {
-                const resource = resourceOrder[i];
-                if (resource === 'wood' || resource === 'holz') cost.wood = rowCosts[i];
-                else if (resource === 'wine' || resource === 'wein') cost.wine = rowCosts[i];
-                else if (resource === 'marble' || resource === 'marmor') cost.marble = rowCosts[i];
-                else if (resource === 'crystal' || resource === 'kristall' || resource === 'glass') cost.crystal = rowCosts[i];
-                else if (resource === 'sulfur' || resource === 'schwefel') cost.sulfur = rowCosts[i];
-              }
+
+              // Assigne les coûts - le premier est toujours le bois dans Ikariam
+              if (rowCosts.length >= 1) cost.wood = rowCosts[0];
+              if (rowCosts.length >= 2) cost.marble = rowCosts[1]; // 2ème ressource souvent marbre
+              // Le temps est généralement dans une colonne séparée ou le dernier élément
+
+              console.log('💰 Coûts assignés:', cost);
               break; // On prend le premier niveau avec des coûts
             }
           }
