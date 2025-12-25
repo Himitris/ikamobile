@@ -816,7 +816,7 @@ export class IkariamApi {
 
   /**
    * Récupère les coûts d'upgrade d'un bâtiment
-   * Approche Ikabot: 2 requêtes - buildingDetail puis extraction des coûts
+   * Approche simplifiée: requête directe sur la page du bâtiment
    */
   async getBuildingUpgradeCost(
     cityId: string,
@@ -831,312 +831,199 @@ export class IkariamApi {
     try {
       const numericCityId = cityId.replace('city_', '');
       const targetLevel = currentLevel + 1;
-      console.log(`💰 [v2] getBuildingUpgradeCost: cityId=${numericCityId}, position=${position}, type=${buildingType}, niveau actuel=${currentLevel}, cible=${targetLevel}`);
+      console.log(`💰 getBuildingUpgradeCost: cityId=${numericCityId}, position=${position}, type=${buildingType}, cible=niv.${targetLevel}`);
 
       // Initialise les coûts
       const cost: Resources = { wood: 0, wine: 0, marble: 0, crystal: 0, sulfur: 0 };
       let time = 0;
 
-      // Étape 1: Récupérer le token CSRF depuis la page HTML complète
-      // On NE met PAS ajax=1 car le actionRequest est dans le HTML initial, pas dans les réponses AJAX
-      const cityResponse = await this.request(`/index.php?view=city&cityId=${numericCityId}`);
-      let actionRequest = '';
+      // Requête directe sur la page du bâtiment - plus simple et fiable
+      const buildingUrl = `/index.php?view=${buildingType}&cityId=${numericCityId}&position=${position}&ajax=1`;
+      console.log('💰 URL:', buildingUrl);
 
-      console.log('💰 [v2] cityResponse length:', cityResponse.data.length);
-      console.log('💰 [v2] cityResponse starts with:', cityResponse.data.substring(0, 50));
+      const response = await this.request(buildingUrl);
+      let html = response.data;
 
-      // Le actionRequest est dans le HTML de différentes façons possibles:
-      // 1. Dans une variable JS: actionRequest = "xxxxx"
-      // 2. Dans un attribut: data-action-request="xxxxx"
-      // 3. Dans du JSON embarqué: "actionRequest":"xxxxx"
-
-      // Pattern 1: Variable JavaScript
-      let match = cityResponse.data.match(/actionRequest\s*[=:]\s*["']([a-zA-Z0-9]+)["']/);
-      if (match) {
-        actionRequest = match[1];
-        console.log('💰 [v2] actionRequest trouvé via pattern JS variable');
-      }
-
-      // Pattern 2: Dans du JSON
-      if (!actionRequest) {
-        match = cityResponse.data.match(/"actionRequest"\s*:\s*"([^"]+)"/);
-        if (match) {
-          actionRequest = match[1];
-          console.log('💰 [v2] actionRequest trouvé via pattern JSON');
-        }
-      }
-
-      // Pattern 3: Input hidden
-      if (!actionRequest) {
-        match = cityResponse.data.match(/name=["']actionRequest["'][^>]*value=["']([^"']+)["']/);
-        if (match) {
-          actionRequest = match[1];
-          console.log('💰 [v2] actionRequest trouvé via input hidden');
-        }
-      }
-
-      // Pattern 4: Dans l'URL d'un lien
-      if (!actionRequest) {
-        match = cityResponse.data.match(/actionRequest=([a-zA-Z0-9]+)/);
-        if (match) {
-          actionRequest = match[1];
-          console.log('💰 [v2] actionRequest trouvé via URL param');
-        }
-      }
-
-      console.log('💰 [v2] actionRequest:', actionRequest ? actionRequest.substring(0, 10) + '...' : 'NON TROUVÉ');
-
-      if (!actionRequest) {
-        return { success: false, error: 'Token CSRF non trouvé' };
-      }
-
-      // Étape 2: Requête buildingDetail avec templateView=ikipedia (comme Ikabot)
-      const detailUrl = `/index.php?view=buildingDetail&buildingId=0&helpId=1&backgroundView=city&currentCityId=${numericCityId}&templateView=ikipedia&actionRequest=${actionRequest}&ajax=1`;
-      console.log('💰 [v2] URL buildingDetail:', detailUrl);
-
-      const detailResponse = await this.request(detailUrl);
-      let buildingHtml = '';
-
-      console.log('💰 [v2] detailResponse starts with:', detailResponse.data.substring(0, 100));
-
-      // Parse JSON-RPC pour extraire le HTML du template
-      if (detailResponse.data.startsWith('[["')) {
+      // Si c'est du JSON-RPC, extrait le HTML
+      if (html.startsWith('[["')) {
         try {
-          const jsonData = JSON.parse(detailResponse.data);
-          console.log('💰 [v2] buildingDetail JSON-RPC parsé, éléments:', jsonData.length);
-
-          // Le HTML est dans jsonData[1][1][1] selon Ikabot
-          if (jsonData[1] && jsonData[1][1] && jsonData[1][1][1]) {
-            buildingHtml = jsonData[1][1][1];
-            console.log('💰 [v2] HTML trouvé dans jsonData[1][1][1]');
-          } else {
-            // Cherche dans updateTemplateData
-            for (const [name, data] of jsonData) {
-              if (name === 'updateTemplateData') {
-                console.log('💰 [v2] updateTemplateData trouvé, type:', typeof data);
-                if (typeof data === 'string') {
-                  buildingHtml = data;
-                  break;
-                }
+          const jsonData = JSON.parse(html);
+          for (const item of jsonData) {
+            if (Array.isArray(item) && item[0] === 'updateTemplateData') {
+              // Le HTML peut être dans item[1] directement ou dans item[1][1]
+              if (typeof item[1] === 'string') {
+                html = item[1];
+                break;
+              } else if (item[1] && typeof item[1][1] === 'string') {
+                html = item[1][1];
+                break;
               }
             }
           }
         } catch (e) {
-          console.warn('💰 [v2] Erreur parsing buildingDetail:', e);
+          console.warn('💰 Erreur parsing JSON-RPC:', e);
         }
       }
 
-      if (!buildingHtml) {
-        console.log('💰 [v2] Pas de HTML trouvé dans buildingDetail - ÉCHEC');
-        return { success: true, data: { cost, time } };
+      console.log('💰 HTML length:', html.length);
+
+      // === MÉTHODE 1: Cherche les coûts dans la section "upgradeAction" ===
+      // Format: <li class="resources"><span class="icon wood">123</span>...
+      const upgradeSection = html.match(/class="[^"]*upgradeAction[^"]*"[\s\S]*?<\/div>/i)?.[0] || '';
+
+      if (upgradeSection) {
+        console.log('💰 Section upgradeAction trouvée');
+
+        // Extraction des ressources par classe CSS
+        const resourcePatterns = [
+          { key: 'wood', pattern: /class="[^"]*(?:wood|resource)[^"]*"[^>]*>[\s\S]*?([\d\s,.'']+)/i },
+          { key: 'wine', pattern: /class="[^"]*wine[^"]*"[^>]*>[\s\S]*?([\d\s,.'']+)/i },
+          { key: 'marble', pattern: /class="[^"]*marble[^"]*"[^>]*>[\s\S]*?([\d\s,.'']+)/i },
+          { key: 'crystal', pattern: /class="[^"]*(?:crystal|glass)[^"]*"[^>]*>[\s\S]*?([\d\s,.'']+)/i },
+          { key: 'sulfur', pattern: /class="[^"]*sulfu?r[^"]*"[^>]*>[\s\S]*?([\d\s,.'']+)/i },
+        ];
+
+        for (const { key, pattern } of resourcePatterns) {
+          const match = upgradeSection.match(pattern);
+          if (match) {
+            const value = parseInt(match[1].replace(/[\s,.'']/g, '')) || 0;
+            cost[key as keyof Resources] = value;
+            console.log(`💰 ${key}: ${value}`);
+          }
+        }
+
+        // Extraction du temps
+        const timeMatch = upgradeSection.match(/(?:time|temps)[^>]*>[\s\S]*?(\d+)[:\s]*(\d+)?[:\s]*(\d+)?/i);
+        if (timeMatch) {
+          // Peut être HH:MM:SS ou juste des minutes
+          const h = parseInt(timeMatch[1]) || 0;
+          const m = parseInt(timeMatch[2]) || 0;
+          const s = parseInt(timeMatch[3]) || 0;
+          time = h * 3600 + m * 60 + s;
+          console.log(`💰 Temps: ${h}h ${m}m ${s}s = ${time}s`);
+        }
       }
 
-      console.log('💰 [v2] buildingHtml length:', buildingHtml.length);
-      console.log('💰 [v2] buildingHtml sample:', buildingHtml.substring(0, 200));
+      // === MÉTHODE 2: Cherche dans les ressources affichées (format liste) ===
+      if (cost.wood === 0 && cost.marble === 0) {
+        console.log('💰 Essai méthode 2: pattern liste ressources...');
 
-      // Étape 3: Trouver le bouton du bâtiment spécifique et extraire l'URL des coûts
-      // Pattern: <div class="button_building {buildingType}" onclick="ajaxHandlerCall('{URL}')">
-      console.log('💰 [v2] Recherche bouton pour:', buildingType);
+        // Pattern: <li ... class="... wood ..."><span class="value">123</span>
+        const liPatterns = [
+          { key: 'wood', pattern: /<li[^>]*class="[^"]*wood[^"]*"[^>]*>[\s\S]*?<span[^>]*class="[^"]*value[^"]*"[^>]*>([\d\s,.'']+)/gi },
+          { key: 'wine', pattern: /<li[^>]*class="[^"]*wine[^"]*"[^>]*>[\s\S]*?<span[^>]*class="[^"]*value[^"]*"[^>]*>([\d\s,.'']+)/gi },
+          { key: 'marble', pattern: /<li[^>]*class="[^"]*marble[^"]*"[^>]*>[\s\S]*?<span[^>]*class="[^"]*value[^"]*"[^>]*>([\d\s,.'']+)/gi },
+          { key: 'crystal', pattern: /<li[^>]*class="[^"]*(?:crystal|glass)[^"]*"[^>]*>[\s\S]*?<span[^>]*class="[^"]*value[^"]*"[^>]*>([\d\s,.'']+)/gi },
+          { key: 'sulfur', pattern: /<li[^>]*class="[^"]*sulfu?r[^"]*"[^>]*>[\s\S]*?<span[^>]*class="[^"]*value[^"]*"[^>]*>([\d\s,.'']+)/gi },
+        ];
 
-      // Cherche d'abord tous les boutons de bâtiments pour debug
-      const allButtons = buildingHtml.match(/button_building\s+(\w+)/gi);
-      console.log('💰 [v2] Boutons trouvés dans HTML:', allButtons?.slice(0, 10) || 'aucun');
+        for (const { key, pattern } of liPatterns) {
+          const match = pattern.exec(html);
+          if (match) {
+            const value = parseInt(match[1].replace(/[\s,.'']/g, '')) || 0;
+            cost[key as keyof Resources] = value;
+            console.log(`💰 [li] ${key}: ${value}`);
+          }
+        }
+      }
 
-      const buttonPattern = new RegExp(
-        `<div[^>]*class="[^"]*button_building\\s+${buildingType}[^"]*"[^>]*onclick="ajaxHandlerCall\\('\\?([^']+)'\\)`,
-        'i'
-      );
-      let buttonMatch = buildingHtml.match(buttonPattern);
+      // === MÉTHODE 3: Extraction depuis un tableau de coûts (ikipedia) ===
+      if (cost.wood === 0 && cost.marble === 0) {
+        console.log('💰 Essai méthode 3: tableau de coûts...');
 
-      if (!buttonMatch) {
-        console.log('💰 [v2] Pattern principal non trouvé, essai alternatif...');
-        // Pattern alternatif plus souple
-        const altPattern = new RegExp(
-          `button_building[^"]*${buildingType}[^>]*onclick="[^"]*\\?([^'"&]+)`,
+        // Cherche la ligne du niveau cible
+        const rowPattern = new RegExp(
+          `<tr[^>]*>[\\s\\S]*?<td[^>]*class="[^"]*level[^"]*"[^>]*>\\s*${targetLevel}\\s*<\\/td>([\\s\\S]*?)<\\/tr>`,
           'i'
         );
-        buttonMatch = buildingHtml.match(altPattern);
-        if (buttonMatch) {
-          console.log('💰 [v2] Pattern alternatif trouvé:', buttonMatch[1]?.substring(0, 50));
+        const rowMatch = html.match(rowPattern);
+
+        if (rowMatch) {
+          console.log('💰 Ligne niveau', targetLevel, 'trouvée');
+          const rowHtml = rowMatch[1];
+
+          // Extrait toutes les valeurs de la ligne
+          const values: number[] = [];
+          const cellPattern = /<td[^>]*class="[^"]*costs[^"]*"[^>]*>[\s\S]*?([\d\s,.'']+)[\s\S]*?<\/td>/gi;
+          let cellMatch;
+          while ((cellMatch = cellPattern.exec(rowHtml)) !== null) {
+            const value = parseInt(cellMatch[1].replace(/[\s,.'']/g, '')) || 0;
+            values.push(value);
+          }
+
+          console.log('💰 Valeurs ligne:', values);
+
+          // Assigne par position (ordre standard Ikariam)
+          if (values.length >= 1) cost.wood = values[0];
+          if (values.length >= 2) cost.marble = values[1];
+          if (values.length >= 3) {
+            // La 3ème colonne peut être le temps ou une autre ressource
+            // Si c'est petit (< 1000), c'est probablement le temps en minutes
+            if (values[2] < 1000) {
+              time = values[2] * 60;
+            } else {
+              cost.wine = values[2];
+            }
+          }
+          if (values.length >= 4) cost.crystal = values[3];
+          if (values.length >= 5) cost.sulfur = values[4];
+          if (values.length >= 6) time = values[5] * 60; // Temps en minutes
         }
-      } else {
-        console.log('💰 [v2] Pattern principal trouvé:', buttonMatch[1]?.substring(0, 50));
       }
 
-      if (buttonMatch) {
-        // Étape 4: Requête pour obtenir les coûts détaillés
-        const costsUrl = `/index.php?${buttonMatch[1]}&backgroundView=city&currentCityId=${numericCityId}&templateView=buildingDetail&actionRequest=${actionRequest}&ajax=1`;
-        console.log('💰 URL coûts:', costsUrl);
+      // === MÉTHODE 4: Cherche les nombres après les icônes de ressources ===
+      if (cost.wood === 0 && cost.marble === 0) {
+        console.log('💰 Essai méthode 4: icônes ressources...');
 
-        const costsResponse = await this.request(costsUrl);
-        let costsHtml = '';
+        // Pattern simple: cherche les spans avec des icônes suivis de nombres
+        const iconPatterns = [
+          { key: 'wood', pattern: /(?:wood|bois|matériau)[^<]*<[^>]*>[\s\S]{0,100}?([\d\s,.'']+)/gi },
+          { key: 'marble', pattern: /(?:marble|marbre)[^<]*<[^>]*>[\s\S]{0,100}?([\d\s,.'']+)/gi },
+          { key: 'wine', pattern: /(?:wine|vin)[^<]*<[^>]*>[\s\S]{0,100}?([\d\s,.'']+)/gi },
+          { key: 'crystal', pattern: /(?:crystal|cristal|glass|verre)[^<]*<[^>]*>[\s\S]{0,100}?([\d\s,.'']+)/gi },
+          { key: 'sulfur', pattern: /(?:sulfur|soufre)[^<]*<[^>]*>[\s\S]{0,100}?([\d\s,.'']+)/gi },
+        ];
 
-        // Parse JSON-RPC
-        if (costsResponse.data.startsWith('[["')) {
-          try {
-            const jsonData = JSON.parse(costsResponse.data);
-            if (jsonData[1] && jsonData[1][1] && jsonData[1][1][1]) {
-              costsHtml = jsonData[1][1][1];
-            } else {
-              for (const [name, data] of jsonData) {
-                if (name === 'updateTemplateData' && typeof data === 'string') {
-                  costsHtml = data;
-                  break;
-                }
-              }
+        for (const { key, pattern } of iconPatterns) {
+          const match = pattern.exec(html);
+          if (match) {
+            const value = parseInt(match[1].replace(/[\s,.'']/g, '')) || 0;
+            if (value > 0) {
+              cost[key as keyof Resources] = value;
+              console.log(`💰 [icon] ${key}: ${value}`);
             }
-          } catch (e) {
-            console.warn('💰 Erreur parsing costs:', e);
           }
         }
+      }
 
-        if (costsHtml) {
-          console.log('💰 costsHtml length:', costsHtml.length);
+      // Extraction du temps si pas encore trouvé
+      if (time === 0) {
+        // Cherche format HH:MM:SS ou similaire
+        const timePatterns = [
+          /data-(?:end)?time="(\d+)"/i,
+          /countdown[^>]*>[\s\S]*?(\d+):(\d+):(\d+)/i,
+          /(?:durée|duration|temps|time)[^>]*>[\s\S]*?(\d+)\s*[hH]\s*(\d+)/i,
+        ];
 
-          // Parse les coûts depuis le tableau HTML
-          // Ikariam utilise des URLs hashées pour les images, donc on ne peut pas identifier
-          // les ressources par le nom du fichier. On utilise l'attribut title ou alt.
-
-          // Cherche les en-têtes avec title ou alt pour identifier les ressources
-          const resourceOrder: string[] = [];
-          // Pattern pour trouver: <th class="costs"><img ... title="Bois" ou alt="Bois"
-          const thPattern = /<th[^>]*class="[^"]*costs[^"]*"[^>]*>[\s\S]*?<img[^>]*(?:title|alt)="([^"]+)"[^>]*>/gi;
-          let thMatch;
-          while ((thMatch = thPattern.exec(costsHtml)) !== null) {
-            resourceOrder.push(thMatch[1].toLowerCase());
-          }
-
-          // Si pas de title/alt, essaye de compter les colonnes et utilise l'ordre standard Ikariam
-          // Ordre standard complet: Bois, Vin, Marbre, Cristal, Soufre, Temps
-          if (resourceOrder.length === 0) {
-            // Compte le nombre de colonnes de coûts
-            const thCount = (costsHtml.match(/<th[^>]*class="[^"]*costs[^"]*"/gi) || []).length;
-            console.log('💰 Nombre de colonnes costs:', thCount);
-
-            // L'ordre standard Ikariam pour les coûts de bâtiment (6 colonnes max)
-            // Bois, Vin, Marbre, Cristal, Soufre, Temps
-            if (thCount >= 6) {
-              resourceOrder.push('wood', 'wine', 'marble', 'crystal', 'sulfur', 'time');
-            } else if (thCount >= 5) {
-              resourceOrder.push('wood', 'wine', 'marble', 'crystal', 'time');
-            } else if (thCount >= 4) {
-              resourceOrder.push('wood', 'wine', 'marble', 'time');
-            } else if (thCount >= 3) {
-              resourceOrder.push('wood', 'marble', 'time');
-            } else if (thCount >= 2) {
-              resourceOrder.push('wood', 'time');
+        for (const pattern of timePatterns) {
+          const match = html.match(pattern);
+          if (match) {
+            if (match[2]) {
+              // Format avec heures et minutes
+              time = (parseInt(match[1]) || 0) * 3600 + (parseInt(match[2]) || 0) * 60 + (parseInt(match[3]) || 0);
             } else {
-              resourceOrder.push('wood');
+              // Timestamp ou durée simple
+              time = parseInt(match[1]) || 0;
             }
-          }
-
-          console.log('💰 Ordre des ressources:', resourceOrder);
-          console.log('💰 Recherche coûts pour niveau cible:', targetLevel);
-
-          // Trouver la ligne du niveau cible (currentLevel + 1)
-          // Format: <td class="level">N</td><td class="costs">...</td>...
-          const levelPattern = /<tr[^>]*>[\s\S]*?<td[^>]*class="[^"]*level[^"]*"[^>]*>(\d+)<\/td>([\s\S]*?)<\/tr>/gi;
-          let levelMatch;
-          let foundTargetLevel = false;
-
-          while ((levelMatch = levelPattern.exec(costsHtml)) !== null) {
-            const level = parseInt(levelMatch[1]);
-            const rowHtml = levelMatch[2];
-
-            // Extraire les valeurs de coûts de cette ligne
-            // Pattern plus robuste pour capturer les nombres
-            const costPattern = /<td[^>]*class="[^"]*costs[^"]*"[^>]*>[\s\S]*?([\d,.'\s\xa0]+)[\s\S]*?<\/td>/gi;
-            const rowCosts: number[] = [];
-            let costMatch;
-            while ((costMatch = costPattern.exec(rowHtml)) !== null) {
-              // Nettoie le nombre (enlève espaces, virgules, points comme séparateurs de milliers)
-              const cleanValue = costMatch[1].replace(/[,.''\s\xa0]/g, '');
-              const value = parseInt(cleanValue) || 0;
-              rowCosts.push(value);
-            }
-
-            // Cherche le niveau cible (currentLevel + 1)
-            if (level === targetLevel && rowCosts.length > 0) {
-              console.log(`💰 ✅ Niveau ${level} (CIBLE): coûts =`, rowCosts);
-              foundTargetLevel = true;
-
-              // Assigne les coûts selon l'ordre des ressources détecté
-              // Supporte les noms en français ET en anglais
-              for (let i = 0; i < Math.min(resourceOrder.length, rowCosts.length); i++) {
-                const resourceName = resourceOrder[i].toLowerCase();
-                const value = rowCosts[i];
-
-                // Mapping français + anglais
-                if (resourceName.includes('bois') || resourceName.includes('wood') || resourceName.includes('matériau')) {
-                  cost.wood = value;
-                } else if (resourceName.includes('vin') || resourceName.includes('wine')) {
-                  cost.wine = value;
-                } else if (resourceName.includes('marbre') || resourceName.includes('marble')) {
-                  cost.marble = value;
-                } else if (resourceName.includes('cristal') || resourceName.includes('crystal') || resourceName.includes('verre') || resourceName.includes('glass')) {
-                  cost.crystal = value;
-                } else if (resourceName.includes('soufre') || resourceName.includes('sulfur')) {
-                  cost.sulfur = value;
-                } else if (resourceName.includes('temps') || resourceName.includes('time')) {
-                  time = value * 60; // Convertit en secondes si en minutes
-                } else {
-                  // Si on ne reconnaît pas le nom mais c'est la première colonne, c'est probablement du bois
-                  if (i === 0 && cost.wood === 0) {
-                    cost.wood = value;
-                    console.log(`💰 Ressource inconnue "${resourceName}" assignée à wood (position 0)`);
-                  }
-                }
-              }
-
-              console.log('💰 Coûts assignés:', cost, 'Temps:', time);
+            if (time > 0) {
+              console.log(`💰 Temps trouvé: ${time}s`);
               break;
-            } else if (rowCosts.length > 0 && rowCosts.some(v => v > 0)) {
-              console.log(`💰 Niveau ${level}: coûts =`, rowCosts, level === targetLevel ? '(CIBLE)' : '');
             }
-          }
-
-          if (!foundTargetLevel) {
-            console.log('💰 ⚠️ Niveau cible', targetLevel, 'non trouvé dans le tableau');
-          }
-        }
-      } else {
-        console.log('💰 [v2] Aucun bouton trouvé, essai direct sur la page du bâtiment...');
-
-        // Fallback: requête directe sur la page du bâtiment
-        const directUrl = `/index.php?view=${buildingType}&cityId=${numericCityId}&position=${position}`;
-        console.log('💰 [v2] URL directe fallback:', directUrl);
-        const directResponse = await this.request(directUrl);
-        console.log('💰 [v2] Réponse directe length:', directResponse.data.length);
-
-        // Cherche les coûts dans la réponse directe
-        if (directResponse.data.startsWith('[["')) {
-          try {
-            const jsonData = JSON.parse(directResponse.data);
-            for (const [name, data] of jsonData) {
-              if (name === 'updateTemplateData' && typeof data === 'string') {
-                // Cherche les patterns de coûts
-                const patterns = [
-                  { key: 'wood', regex: /class="[^"]*(?:wood|resource)[^"]*"[^>]*>[\s\S]*?([\d,.]+)/i },
-                  { key: 'wine', regex: /class="[^"]*wine[^"]*"[^>]*>[\s\S]*?([\d,.]+)/i },
-                  { key: 'marble', regex: /class="[^"]*marble[^"]*"[^>]*>[\s\S]*?([\d,.]+)/i },
-                  { key: 'crystal', regex: /class="[^"]*(?:crystal|glass)[^"]*"[^>]*>[\s\S]*?([\d,.]+)/i },
-                  { key: 'sulfur', regex: /class="[^"]*sulfu?r[^"]*"[^>]*>[\s\S]*?([\d,.]+)/i },
-                ];
-                for (const { key, regex } of patterns) {
-                  const match = data.match(regex);
-                  if (match) {
-                    cost[key as keyof Resources] = parseInt(match[1].replace(/[,.]/g, '')) || 0;
-                  }
-                }
-              }
-            }
-          } catch (e) {
-            console.warn('💰 Erreur parsing direct:', e);
           }
         }
       }
 
-      console.log('💰 [v2] Résultat final - Coûts:', cost, 'Temps:', time);
+      console.log('💰 Résultat final - Coûts:', cost, 'Temps:', time);
 
       return {
         success: true,

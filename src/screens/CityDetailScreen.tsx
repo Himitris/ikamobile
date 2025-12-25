@@ -23,6 +23,18 @@ interface CityDetailScreenProps {
   onCityChange?: (cityId: string) => void;
 }
 
+// Interface pour le modal de confirmation d'upgrade
+interface UpgradeModalData {
+  visible: boolean;
+  building: Building | null;
+  upgradeCost: Resources | null;
+  upgradeTime: number;
+  hasEnoughResources: boolean;
+  isLoading: boolean;
+  isUpgrading: boolean;
+  message: string;
+}
+
 export const CityDetailScreen: React.FC<CityDetailScreenProps> = ({
   cityId,
   allCities = [],
@@ -35,6 +47,18 @@ export const CityDetailScreen: React.FC<CityDetailScreenProps> = ({
   const [loadingCosts, setLoadingCosts] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showCitySelector, setShowCitySelector] = useState(false);
+
+  // État pour le modal de confirmation d'upgrade
+  const [upgradeModal, setUpgradeModal] = useState<UpgradeModalData>({
+    visible: false,
+    building: null,
+    upgradeCost: null,
+    upgradeTime: 0,
+    hasEnoughResources: true,
+    isLoading: false,
+    isUpgrading: false,
+    message: '',
+  });
 
   const loadCityDetails = async () => {
     try {
@@ -98,13 +122,11 @@ export const CityDetailScreen: React.FC<CityDetailScreenProps> = ({
         const errorMsg = result.error || 'Impossible de charger les détails de la ville';
         console.error('🏛️ CityDetailScreen: Erreur:', errorMsg);
         setError(errorMsg);
-        Alert.alert('Erreur', errorMsg);
       }
     } catch (error: any) {
       const errorMsg = error.message || 'Une erreur est survenue';
       console.error('🏛️ CityDetailScreen: Exception:', errorMsg);
       setError(errorMsg);
-      Alert.alert('Erreur', errorMsg);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -116,18 +138,78 @@ export const CityDetailScreen: React.FC<CityDetailScreenProps> = ({
     loadCityDetails();
   };
 
+  // Ferme le modal d'upgrade
+  const closeUpgradeModal = () => {
+    setUpgradeModal(prev => ({ ...prev, visible: false }));
+  };
+
+  // Lance l'upgrade depuis le modal
+  const confirmUpgrade = async () => {
+    if (!upgradeModal.building) return;
+
+    console.log('🔨 Lancement upgrade:', upgradeModal.building.name, 'position:', upgradeModal.building.position);
+    setUpgradeModal(prev => ({ ...prev, isUpgrading: true, message: 'Lancement de la construction...' }));
+
+    try {
+      const result = await ikariamApi.startConstruction(
+        cityId,
+        upgradeModal.building.position,
+        upgradeModal.building.type
+      );
+
+      if (result.success) {
+        setUpgradeModal(prev => ({ ...prev, message: result.data?.message || 'Construction lancée !', isUpgrading: false }));
+        // Ferme le modal après 1.5s et rafraîchit
+        setTimeout(() => {
+          closeUpgradeModal();
+          loadCityDetails();
+        }, 1500);
+      } else {
+        setUpgradeModal(prev => ({ ...prev, message: result.error || 'Erreur lors du lancement', isUpgrading: false }));
+      }
+    } catch (error: any) {
+      console.error('🔨 Erreur upgrade:', error);
+      setUpgradeModal(prev => ({ ...prev, message: error.message || 'Erreur', isUpgrading: false }));
+    }
+  };
+
+  // Ouvre le modal de confirmation d'upgrade
   const handleBuildingUpgrade = async (building: Building) => {
     if (!city) return;
 
-    // Charge les coûts à la demande si non disponibles
-    let upgradeCost = building.upgradeCost;
-    let upgradeTime = building.upgradeTime;
+    console.log('🔨 handleBuildingUpgrade: Clic sur', building.name, 'position:', building.position);
 
-    if (!upgradeCost) {
-      // Affiche un indicateur de chargement
-      Alert.alert('Chargement...', 'Récupération des coûts d\'amélioration...');
+    // Ouvre le modal en mode chargement si les coûts ne sont pas disponibles
+    let upgradeCost = building.upgradeCost || null;
+    let upgradeTime = building.upgradeTime || 0;
+    const needsLoading = !upgradeCost;
 
+    // Calcule si on a assez de ressources (avec les données actuelles)
+    const checkResources = (cost: Resources | null) => {
+      if (!cost) return true;
+      return Object.entries(cost).every(([resource, amount]) => {
+        if (amount === 0) return true;
+        const currentAmount = city.resources[resource as keyof typeof city.resources] || 0;
+        return currentAmount >= amount;
+      });
+    };
+
+    // Ouvre le modal
+    setUpgradeModal({
+      visible: true,
+      building,
+      upgradeCost,
+      upgradeTime,
+      hasEnoughResources: checkResources(upgradeCost),
+      isLoading: needsLoading,
+      isUpgrading: false,
+      message: needsLoading ? 'Chargement des coûts...' : '',
+    });
+
+    // Si on n'a pas les coûts, les récupère
+    if (needsLoading) {
       try {
+        console.log('💰 Récupération des coûts pour', building.name);
         const costResult = await ikariamApi.getBuildingUpgradeCost(
           cityId,
           building.position,
@@ -139,80 +221,31 @@ export const CityDetailScreen: React.FC<CityDetailScreenProps> = ({
           upgradeCost = costResult.data.cost;
           upgradeTime = costResult.data.time;
           console.log('💰 Coûts récupérés:', upgradeCost, 'Temps:', upgradeTime);
+
+          setUpgradeModal(prev => ({
+            ...prev,
+            upgradeCost,
+            upgradeTime,
+            hasEnoughResources: checkResources(upgradeCost),
+            isLoading: false,
+            message: '',
+          }));
+        } else {
+          setUpgradeModal(prev => ({
+            ...prev,
+            isLoading: false,
+            message: 'Coûts non disponibles',
+          }));
         }
       } catch (error) {
         console.error('❌ Erreur récupération coûts:', error);
+        setUpgradeModal(prev => ({
+          ...prev,
+          isLoading: false,
+          message: 'Erreur lors du chargement des coûts',
+        }));
       }
     }
-
-    // Vérifie si on a assez de ressources
-    const hasEnoughResources = upgradeCost
-      ? Object.entries(upgradeCost).every(([resource, cost]) => {
-          if (cost === 0) return true;
-          const currentAmount = city.resources[resource as keyof typeof city.resources] || 0;
-          return currentAmount >= cost;
-        })
-      : true;
-
-    // Construit le message avec le coût
-    let message = `Niveau ${building.level} → ${building.level + 1}`;
-
-    if (upgradeCost) {
-      const costs = [];
-      if (upgradeCost.wood > 0) costs.push(`🪵 ${formatNumber(upgradeCost.wood)}`);
-      if (upgradeCost.wine > 0) costs.push(`🍷 ${formatNumber(upgradeCost.wine)}`);
-      if (upgradeCost.marble > 0) costs.push(`⚪ ${formatNumber(upgradeCost.marble)}`);
-      if (upgradeCost.crystal > 0) costs.push(`💎 ${formatNumber(upgradeCost.crystal)}`);
-      if (upgradeCost.sulfur > 0) costs.push(`⚠️ ${formatNumber(upgradeCost.sulfur)}`);
-
-      if (costs.length > 0) {
-        message += `\n\nCoût: ${costs.join(', ')}`;
-      }
-    } else {
-      message += '\n\n(Coûts non disponibles)';
-    }
-
-    if (upgradeTime) {
-      const hours = Math.floor(upgradeTime / 3600);
-      const minutes = Math.floor((upgradeTime % 3600) / 60);
-      message += `\nTemps: ${hours}h ${minutes}m`;
-    }
-
-    if (!hasEnoughResources) {
-      message += '\n\n⚠️ Ressources insuffisantes';
-    }
-
-    Alert.alert(
-      BUILDING_NAMES[building.type] || building.name || building.type,
-      message,
-      [
-        { text: 'Annuler', style: 'cancel' },
-        {
-          text: 'Améliorer',
-          style: hasEnoughResources ? 'default' : 'destructive',
-          onPress: async () => {
-            try {
-              console.log('🔨 Lancement upgrade:', building.name, 'position:', building.position);
-              const result = await ikariamApi.startConstruction(
-                cityId,
-                building.position,
-                building.type
-              );
-              if (result.success) {
-                Alert.alert('Succès', result.data?.message || 'Construction lancée !');
-                // Rafraîchit les détails après un court délai
-                setTimeout(() => loadCityDetails(), 1000);
-              } else {
-                Alert.alert('Erreur', result.error || 'Impossible de lancer la construction');
-              }
-            } catch (error: any) {
-              console.error('🔨 Erreur upgrade:', error);
-              Alert.alert('Erreur', error.message || 'Une erreur est survenue');
-            }
-          },
-        },
-      ]
-    );
   };
 
   const formatNumber = (num: number): string => {
@@ -318,6 +351,185 @@ export const CityDetailScreen: React.FC<CityDetailScreenProps> = ({
                 </TouchableOpacity>
               )}
             />
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Modal de confirmation d'upgrade */}
+      <Modal
+        visible={upgradeModal.visible}
+        transparent
+        animationType="fade"
+        onRequestClose={closeUpgradeModal}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={upgradeModal.isUpgrading ? undefined : closeUpgradeModal}
+        >
+          <View style={styles.upgradeModalContent} onStartShouldSetResponder={() => true}>
+            {upgradeModal.building && (
+              <>
+                {/* Titre du bâtiment */}
+                <IkariamText variant="heading" style={styles.modalTitle}>
+                  {BUILDING_NAMES[upgradeModal.building.type] || upgradeModal.building.name || upgradeModal.building.type}
+                </IkariamText>
+
+                {/* Niveau */}
+                <IkariamText variant="body" style={styles.upgradeLevel}>
+                  Niveau {upgradeModal.building.level} → {upgradeModal.building.level + 1}
+                </IkariamText>
+
+                {/* Indicateur de chargement */}
+                {upgradeModal.isLoading && (
+                  <View style={styles.upgradeLoadingRow}>
+                    <ActivityIndicator size="small" color={IkariamTheme.colors.wood.base} />
+                    <IkariamText variant="caption" color="secondary" style={styles.upgradeLoadingText}>
+                      Chargement des coûts...
+                    </IkariamText>
+                  </View>
+                )}
+
+                {/* Coûts */}
+                {!upgradeModal.isLoading && upgradeModal.upgradeCost && (
+                  <View style={styles.upgradeCostsContainer}>
+                    <IkariamText variant="caption" color="secondary" style={styles.upgradeCostsLabel}>
+                      Coûts:
+                    </IkariamText>
+                    <View style={styles.upgradeCostsGrid}>
+                      {upgradeModal.upgradeCost.wood > 0 && (
+                        <View style={styles.upgradeCostItem}>
+                          <IkariamText variant="body">🪵</IkariamText>
+                          <IkariamText
+                            variant="body"
+                            style={[
+                              styles.upgradeCostValue,
+                              city && city.resources.wood < upgradeModal.upgradeCost.wood && styles.costInsufficient,
+                            ]}
+                          >
+                            {formatNumber(upgradeModal.upgradeCost.wood)}
+                          </IkariamText>
+                        </View>
+                      )}
+                      {upgradeModal.upgradeCost.wine > 0 && (
+                        <View style={styles.upgradeCostItem}>
+                          <IkariamText variant="body">🍷</IkariamText>
+                          <IkariamText
+                            variant="body"
+                            style={[
+                              styles.upgradeCostValue,
+                              city && city.resources.wine < upgradeModal.upgradeCost.wine && styles.costInsufficient,
+                            ]}
+                          >
+                            {formatNumber(upgradeModal.upgradeCost.wine)}
+                          </IkariamText>
+                        </View>
+                      )}
+                      {upgradeModal.upgradeCost.marble > 0 && (
+                        <View style={styles.upgradeCostItem}>
+                          <IkariamText variant="body">⚪</IkariamText>
+                          <IkariamText
+                            variant="body"
+                            style={[
+                              styles.upgradeCostValue,
+                              city && city.resources.marble < upgradeModal.upgradeCost.marble && styles.costInsufficient,
+                            ]}
+                          >
+                            {formatNumber(upgradeModal.upgradeCost.marble)}
+                          </IkariamText>
+                        </View>
+                      )}
+                      {upgradeModal.upgradeCost.crystal > 0 && (
+                        <View style={styles.upgradeCostItem}>
+                          <IkariamText variant="body">💎</IkariamText>
+                          <IkariamText
+                            variant="body"
+                            style={[
+                              styles.upgradeCostValue,
+                              city && city.resources.crystal < upgradeModal.upgradeCost.crystal && styles.costInsufficient,
+                            ]}
+                          >
+                            {formatNumber(upgradeModal.upgradeCost.crystal)}
+                          </IkariamText>
+                        </View>
+                      )}
+                      {upgradeModal.upgradeCost.sulfur > 0 && (
+                        <View style={styles.upgradeCostItem}>
+                          <IkariamText variant="body">⚠️</IkariamText>
+                          <IkariamText
+                            variant="body"
+                            style={[
+                              styles.upgradeCostValue,
+                              city && city.resources.sulfur < upgradeModal.upgradeCost.sulfur && styles.costInsufficient,
+                            ]}
+                          >
+                            {formatNumber(upgradeModal.upgradeCost.sulfur)}
+                          </IkariamText>
+                        </View>
+                      )}
+                    </View>
+                  </View>
+                )}
+
+                {/* Temps */}
+                {!upgradeModal.isLoading && upgradeModal.upgradeTime > 0 && (
+                  <View style={styles.upgradeTimeRow}>
+                    <IkariamText variant="caption" color="secondary">
+                      Temps: ⏱ {Math.floor(upgradeModal.upgradeTime / 3600)}h {Math.floor((upgradeModal.upgradeTime % 3600) / 60)}m
+                    </IkariamText>
+                  </View>
+                )}
+
+                {/* Message (erreur ou succès) */}
+                {upgradeModal.message && !upgradeModal.isLoading && (
+                  <IkariamText
+                    variant="caption"
+                    color={upgradeModal.message.includes('Erreur') || upgradeModal.message.includes('non disponible') ? 'error' : 'primary'}
+                    style={styles.upgradeMessage}
+                  >
+                    {upgradeModal.message}
+                  </IkariamText>
+                )}
+
+                {/* Avertissement ressources insuffisantes */}
+                {!upgradeModal.isLoading && !upgradeModal.hasEnoughResources && (
+                  <IkariamText variant="caption" color="error" style={styles.upgradeWarning}>
+                    Ressources insuffisantes
+                  </IkariamText>
+                )}
+
+                {/* Boutons */}
+                <View style={styles.upgradeButtonsRow}>
+                  <TouchableOpacity
+                    style={[styles.upgradeModalButton, styles.upgradeModalButtonCancel]}
+                    onPress={closeUpgradeModal}
+                    disabled={upgradeModal.isUpgrading}
+                  >
+                    <IkariamText variant="body" weight="semibold" style={styles.upgradeModalButtonText}>
+                      Annuler
+                    </IkariamText>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.upgradeModalButton,
+                      styles.upgradeModalButtonConfirm,
+                      (upgradeModal.isLoading || upgradeModal.isUpgrading) && styles.upgradeModalButtonDisabled,
+                    ]}
+                    onPress={confirmUpgrade}
+                    disabled={upgradeModal.isLoading || upgradeModal.isUpgrading}
+                  >
+                    {upgradeModal.isUpgrading ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <IkariamText variant="body" weight="semibold" color="light">
+                        Améliorer
+                      </IkariamText>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
           </View>
         </TouchableOpacity>
       </Modal>
@@ -829,5 +1041,88 @@ const styles = StyleSheet.create({
   emptyHint: {
     marginTop: IkariamTheme.spacing.xs,
     fontStyle: 'italic',
+  },
+  // Styles pour le modal d'upgrade
+  upgradeModalContent: {
+    backgroundColor: IkariamTheme.colors.parchment.base,
+    borderRadius: IkariamTheme.borderRadius.lg,
+    padding: IkariamTheme.spacing.xl,
+    width: '90%',
+    maxWidth: 400,
+    borderWidth: 2,
+    borderColor: IkariamTheme.colors.wood.base,
+    ...IkariamTheme.shadows.lg,
+  },
+  upgradeLevel: {
+    textAlign: 'center',
+    marginBottom: IkariamTheme.spacing.lg,
+  },
+  upgradeLoadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: IkariamTheme.spacing.sm,
+    marginVertical: IkariamTheme.spacing.lg,
+  },
+  upgradeLoadingText: {
+    marginLeft: IkariamTheme.spacing.sm,
+  },
+  upgradeCostsContainer: {
+    marginBottom: IkariamTheme.spacing.base,
+  },
+  upgradeCostsLabel: {
+    marginBottom: IkariamTheme.spacing.sm,
+  },
+  upgradeCostsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: IkariamTheme.spacing.base,
+  },
+  upgradeCostItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: IkariamTheme.spacing.xs,
+  },
+  upgradeCostValue: {
+    minWidth: 50,
+  },
+  upgradeTimeRow: {
+    marginBottom: IkariamTheme.spacing.base,
+  },
+  upgradeMessage: {
+    textAlign: 'center',
+    marginVertical: IkariamTheme.spacing.sm,
+  },
+  upgradeWarning: {
+    textAlign: 'center',
+    marginBottom: IkariamTheme.spacing.base,
+  },
+  upgradeButtonsRow: {
+    flexDirection: 'row',
+    gap: IkariamTheme.spacing.base,
+    marginTop: IkariamTheme.spacing.lg,
+  },
+  upgradeModalButton: {
+    flex: 1,
+    paddingVertical: IkariamTheme.spacing.base,
+    paddingHorizontal: IkariamTheme.spacing.lg,
+    borderRadius: IkariamTheme.borderRadius.base,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 44,
+  },
+  upgradeModalButtonCancel: {
+    backgroundColor: IkariamTheme.colors.parchment.dark,
+    borderWidth: 1,
+    borderColor: IkariamTheme.colors.border.base,
+  },
+  upgradeModalButtonConfirm: {
+    backgroundColor: IkariamTheme.colors.wood.base,
+  },
+  upgradeModalButtonDisabled: {
+    opacity: 0.5,
+  },
+  upgradeModalButtonText: {
+    color: IkariamTheme.colors.text.primary,
   },
 });
