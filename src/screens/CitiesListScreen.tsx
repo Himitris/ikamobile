@@ -2,16 +2,17 @@ import React, { useEffect, useState } from 'react';
 import {
   View,
   FlatList,
-  TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
   Alert,
   RefreshControl,
+  Modal,
+  TouchableOpacity,
 } from 'react-native';
 import { ikariamApi } from '../services/ikariamApi';
 import { storageService } from '../services/storage';
 import type { City } from '../types';
-import { IkariamText, IkariamCard, IkariamButton, IkariamBadge } from '@/components/ikariam';
+import { IkariamText, IkariamButton, IkariamHeader, IkariamCityCard } from '@/components/ikariam';
 import { IkariamTheme } from '@/constants/ikariamTheme';
 
 interface CitiesListScreenProps {
@@ -27,6 +28,7 @@ export const CitiesListScreen: React.FC<CitiesListScreenProps> = ({
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
 
   const loadCities = async () => {
     try {
@@ -64,41 +66,29 @@ export const CitiesListScreen: React.FC<CitiesListScreenProps> = ({
     loadCities();
   };
 
-  const handleLogout = async () => {
-    Alert.alert('Déconnexion', 'Voulez-vous vraiment vous déconnecter ?', [
-      { text: 'Annuler', style: 'cancel' },
-      {
-        text: 'Déconnexion',
-        style: 'destructive',
-        onPress: async () => {
-          await storageService.clearSession();
-          ikariamApi.logout();
-          onLogout();
-        },
-      },
-    ]);
+  const handleLogout = () => {
+    setShowLogoutModal(true);
+  };
+
+  const confirmLogout = async () => {
+    setShowLogoutModal(false);
+    await storageService.clearSession();
+    ikariamApi.logout();
+    onLogout();
   };
 
   useEffect(() => {
     loadCities();
   }, []);
 
-  const renderCityItem = ({ item }: { item: City }) => (
-    <TouchableOpacity onPress={() => onCitySelect(item.id, cities)}>
-      <IkariamCard style={styles.cityCard}>
-        <View style={styles.cityHeader}>
-          <IkariamText variant="heading" style={styles.cityName}>
-            {item.name}
-          </IkariamText>
-          <IkariamBadge label={`[${item.x}:${item.y}]`} size="sm" variant="info" />
-        </View>
-        <View style={styles.cityInfo}>
-          <IkariamText variant="caption" color="tertiary">
-            ID: {item.id}
-          </IkariamText>
-        </View>
-      </IkariamCard>
-    </TouchableOpacity>
+  const renderCityItem = ({ item, index }: { item: City; index: number }) => (
+    <IkariamCityCard
+      city={{
+        ...item,
+        isCapital: index === 0, // Première ville = capitale (simplifié)
+      }}
+      onPress={() => onCitySelect(item.id, cities)}
+    />
   );
 
   if (loading) {
@@ -114,27 +104,59 @@ export const CitiesListScreen: React.FC<CitiesListScreenProps> = ({
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <View style={styles.headerContent}>
-          <IkariamText variant="heading" color="light" style={styles.title}>
-            Mes Villes
-          </IkariamText>
-          <IkariamBadge
-            label={`${cities.length}`}
-            variant="warning"
-            size="md"
-            style={styles.citiesCount}
-          />
-        </View>
-        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-          <IkariamText variant="label" color="light">
-            Déconnexion
-          </IkariamText>
-        </TouchableOpacity>
-      </View>
+      {/* Header décoré */}
+      <IkariamHeader
+        title="Mes Villes"
+        subtitle={`${cities.length} ville${cities.length > 1 ? 's' : ''}`}
+        variant="decorated"
+        rightAction={{
+          label: 'Déconnexion',
+          onPress: handleLogout,
+        }}
+      />
 
+      {/* Modal de déconnexion */}
+      <Modal
+        visible={showLogoutModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowLogoutModal(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowLogoutModal(false)}
+        >
+          <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
+            <IkariamText variant="heading" style={styles.modalTitle}>
+              Déconnexion
+            </IkariamText>
+            <IkariamText variant="body" color="secondary" style={styles.modalMessage}>
+              Voulez-vous vraiment vous déconnecter ?
+            </IkariamText>
+            <View style={styles.modalButtons}>
+              <IkariamButton
+                title="Annuler"
+                variant="secondary"
+                size="md"
+                onPress={() => setShowLogoutModal(false)}
+                style={styles.modalButton}
+              />
+              <IkariamButton
+                title="Déconnexion"
+                variant="danger"
+                size="md"
+                onPress={confirmLogout}
+                style={styles.modalButton}
+              />
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Bannière d'erreur */}
       {error && (
-        <IkariamCard variant="default" style={styles.errorBanner}>
+        <View style={styles.errorBanner}>
           <View style={styles.errorContent}>
             <IkariamText variant="caption" style={styles.errorText}>
               ⚠️ {error}
@@ -145,11 +167,17 @@ export const CitiesListScreen: React.FC<CitiesListScreenProps> = ({
               </IkariamText>
             </TouchableOpacity>
           </View>
-        </IkariamCard>
+        </View>
       )}
 
+      {/* Liste des villes ou état vide */}
       {cities.length === 0 ? (
         <View style={styles.centerContainer}>
+          <View style={styles.emptyStateIcon}>
+            <IkariamText variant="title" style={styles.emptyIcon}>
+              🏛️
+            </IkariamText>
+          </View>
           <IkariamText variant="body" color="secondary" style={styles.emptyText}>
             {error ? 'Erreur de chargement' : 'Aucune ville trouvée'}
           </IkariamText>
@@ -166,6 +194,7 @@ export const CitiesListScreen: React.FC<CitiesListScreenProps> = ({
           keyExtractor={(item) => item.id}
           renderItem={renderCityItem}
           contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -191,66 +220,37 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: IkariamTheme.spacing.xl,
   },
-  header: {
-    backgroundColor: IkariamTheme.colors.wood.dark,
-    padding: IkariamTheme.spacing.lg,
-    paddingTop: IkariamTheme.spacing['5xl'],
-    borderBottomWidth: 3,
-    borderBottomColor: IkariamTheme.colors.wood.darkest,
-    ...IkariamTheme.shadows.lg,
-  },
-  headerContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: IkariamTheme.spacing.md,
-  },
-  title: {
-    marginRight: IkariamTheme.spacing.md,
-  },
-  citiesCount: {
-    marginTop: IkariamTheme.spacing.xs,
-  },
-  logoutButton: {
-    backgroundColor: IkariamTheme.colors.wood.darkest,
-    paddingHorizontal: IkariamTheme.spacing.base,
-    paddingVertical: IkariamTheme.spacing.sm,
-    borderRadius: IkariamTheme.borderRadius.base,
-    borderWidth: 1,
-    borderColor: IkariamTheme.colors.wood.base,
-    ...IkariamTheme.shadows.sm,
-  },
   loadingText: {
     marginTop: IkariamTheme.spacing.md,
   },
   listContent: {
     padding: IkariamTheme.spacing.base,
   },
-  cityCard: {
-    marginBottom: IkariamTheme.spacing.base,
-  },
-  cityHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  emptyStateIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: IkariamTheme.colors.parchment.dark,
     alignItems: 'center',
-    marginBottom: IkariamTheme.spacing.md,
+    justifyContent: 'center',
+    marginBottom: IkariamTheme.spacing.lg,
+    borderWidth: 3,
+    borderColor: IkariamTheme.colors.wood.base,
   },
-  cityName: {
-    flex: 1,
-    marginRight: IkariamTheme.spacing.md,
-  },
-  cityInfo: {
-    borderTopWidth: 1,
-    borderTopColor: IkariamTheme.colors.border.light,
-    paddingTop: IkariamTheme.spacing.sm,
+  emptyIcon: {
+    fontSize: 40,
   },
   emptyText: {
     marginBottom: IkariamTheme.spacing.lg,
+    textAlign: 'center',
   },
   errorBanner: {
     margin: IkariamTheme.spacing.base,
     backgroundColor: IkariamTheme.colors.error,
-    borderColor: '#A0522D',
+    borderRadius: IkariamTheme.borderRadius.base,
+    padding: IkariamTheme.spacing.base,
     borderWidth: 2,
+    borderColor: '#A0522D',
   },
   errorContent: {
     flexDirection: 'row',
@@ -266,5 +266,38 @@ const styles = StyleSheet.create({
   },
   dismissText: {
     color: IkariamTheme.colors.text.light,
+  },
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: IkariamTheme.spacing.xl,
+  },
+  modalContent: {
+    backgroundColor: IkariamTheme.colors.parchment.base,
+    borderRadius: IkariamTheme.borderRadius.lg,
+    padding: IkariamTheme.spacing.xl,
+    width: '100%',
+    maxWidth: 400,
+    borderWidth: 2,
+    borderColor: IkariamTheme.colors.wood.base,
+    ...IkariamTheme.shadows.lg,
+  },
+  modalTitle: {
+    textAlign: 'center',
+    marginBottom: IkariamTheme.spacing.md,
+  },
+  modalMessage: {
+    textAlign: 'center',
+    marginBottom: IkariamTheme.spacing.xl,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: IkariamTheme.spacing.base,
+  },
+  modalButton: {
+    flex: 1,
   },
 });

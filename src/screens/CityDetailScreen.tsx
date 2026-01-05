@@ -4,7 +4,6 @@ import {
   ScrollView,
   StyleSheet,
   ActivityIndicator,
-  Alert,
   TouchableOpacity,
   RefreshControl,
   Modal,
@@ -13,7 +12,7 @@ import {
 import { ikariamApi } from '../services/ikariamApi';
 import type { City, Construction, Building, Resources } from '../types';
 import { BUILDING_NAMES } from '../constants/game';
-import { IkariamText, IkariamCard, IkariamButton, IkariamBadge } from '@/components/ikariam';
+import { IkariamText, IkariamHeader, IkariamResourcePanel, IkariamCityCard } from '@/components/ikariam';
 import { IkariamTheme } from '@/constants/ikariamTheme';
 
 interface CityDetailScreenProps {
@@ -284,33 +283,20 @@ export const CityDetailScreen: React.FC<CityDetailScreenProps> = ({
 
   return (
     <View style={styles.container}>
-      {/* Header avec nom de ville et sélecteur */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onBack} style={styles.backButton}>
-          <IkariamText variant="body" color="light" style={styles.backIcon}>
-            ←
-          </IkariamText>
-        </TouchableOpacity>
-
-        {/* Sélecteur de ville cliquable */}
-        <TouchableOpacity
-          style={styles.citySelectorButton}
-          onPress={() => allCities.length > 1 && setShowCitySelector(true)}
-        >
-          <IkariamText variant="heading" color="light" style={styles.cityName}>
-            {city.name}
-          </IkariamText>
-          {allCities.length > 1 && (
-            <IkariamText variant="caption" color="light" style={styles.selectorArrow}>
-              ▼
-            </IkariamText>
-          )}
-        </TouchableOpacity>
-
-        <IkariamText variant="caption" color="light" style={styles.coords}>
-          [{city.x}:{city.y}]
-        </IkariamText>
-      </View>
+      {/* Header décoré */}
+      <IkariamHeader
+        title={city.name}
+        subtitle={`[${city.x}:${city.y}]`}
+        variant="compact"
+        leftAction={{
+          icon: '←',
+          onPress: onBack,
+        }}
+        rightAction={allCities.length > 1 ? {
+          icon: '▼',
+          onPress: () => setShowCitySelector(true),
+        } : undefined}
+      />
 
       {/* Modal sélecteur de ville */}
       <Modal
@@ -324,7 +310,7 @@ export const CityDetailScreen: React.FC<CityDetailScreenProps> = ({
           activeOpacity={1}
           onPress={() => setShowCitySelector(false)}
         >
-          <View style={styles.modalContent}>
+          <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
             <IkariamText variant="heading" style={styles.modalTitle}>
               Choisir une ville
             </IkariamText>
@@ -332,23 +318,12 @@ export const CityDetailScreen: React.FC<CityDetailScreenProps> = ({
               data={allCities}
               keyExtractor={(item) => item.id}
               renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={[
-                    styles.cityOption,
-                    item.id === cityId && styles.cityOptionSelected,
-                  ]}
+                <IkariamCityCard
+                  city={item}
+                  variant="compact"
+                  isSelected={item.id === cityId}
                   onPress={() => handleCitySelect(item.id)}
-                >
-                  <IkariamText
-                    variant="body"
-                    weight={item.id === cityId ? 'bold' : 'regular'}
-                  >
-                    {item.name}
-                  </IkariamText>
-                  <IkariamText variant="caption" color="secondary">
-                    [{item.x}:{item.y}]
-                  </IkariamText>
-                </TouchableOpacity>
+                />
               )}
             />
           </View>
@@ -534,32 +509,19 @@ export const CityDetailScreen: React.FC<CityDetailScreenProps> = ({
         </TouchableOpacity>
       </Modal>
 
-      {/* Barre de ressources (compacte en haut) */}
-      <View style={styles.resourcesBar}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.resourcesScroll}>
-          <View style={styles.resourcesList}>
-            <ResourceBadge icon="🪵" value={formatNumber(city.resources.wood)} />
-            <ResourceBadge icon="🍷" value={formatNumber(city.resources.wine)} />
-            <ResourceBadge icon="⚪" value={formatNumber(city.resources.marble)} />
-            <ResourceBadge icon="💎" value={formatNumber(city.resources.crystal)} />
-            <ResourceBadge icon="⚠️" value={formatNumber(city.resources.sulfur)} />
-            {city.resources.gold !== undefined && (
-              <ResourceBadge icon="💰" value={formatNumber(city.resources.gold)} highlight />
-            )}
-            {city.resources.citizens !== undefined && (
-              <ResourceBadge icon="👥" value={formatNumber(city.resources.citizens)} />
-            )}
-          </View>
-        </ScrollView>
-        {loadingCosts && (
-          <View style={styles.loadingCostsBar}>
-            <ActivityIndicator size="small" color={IkariamTheme.colors.wood.base} />
-            <IkariamText variant="caption" color="secondary" style={styles.loadingCostsText}>
-              Chargement des coûts...
-            </IkariamText>
-          </View>
-        )}
-      </View>
+      {/* Barre de ressources avec nouveau composant */}
+      <IkariamResourcePanel
+        resources={city.resources}
+        variant="horizontal"
+      />
+      {loadingCosts && (
+        <View style={styles.loadingCostsBar}>
+          <ActivityIndicator size="small" color={IkariamTheme.colors.wood.base} />
+          <IkariamText variant="caption" color="secondary" style={styles.loadingCostsText}>
+            Chargement des coûts...
+          </IkariamText>
+        </View>
+      )}
 
       {/* Liste des bâtiments */}
       <ScrollView
@@ -611,21 +573,6 @@ export const CityDetailScreen: React.FC<CityDetailScreenProps> = ({
     </View>
   );
 };
-
-const ResourceBadge: React.FC<{ icon: string; value: string; highlight?: boolean }> = ({
-  icon,
-  value,
-  highlight = false,
-}) => (
-  <View style={[styles.resourceBadge, highlight && styles.resourceBadgeHighlight]}>
-    <IkariamText variant="caption" style={styles.resourceIcon}>
-      {icon}
-    </IkariamText>
-    <IkariamText variant="caption" weight="semibold" style={styles.resourceValue}>
-      {value}
-    </IkariamText>
-  </View>
-);
 
 const ConstructionItem: React.FC<{ construction: Construction }> = ({ construction }) => {
   const [timeRemaining, setTimeRemaining] = useState('');
@@ -825,39 +772,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: IkariamTheme.spacing.xl,
   },
-  header: {
-    backgroundColor: IkariamTheme.colors.wood.dark,
-    paddingHorizontal: IkariamTheme.spacing.base,
-    paddingTop: IkariamTheme.spacing['4xl'],
-    paddingBottom: IkariamTheme.spacing.base,
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderBottomWidth: 2,
-    borderBottomColor: IkariamTheme.colors.wood.darkest,
-  },
-  backButton: {
-    padding: IkariamTheme.spacing.sm,
-    marginRight: IkariamTheme.spacing.sm,
-  },
-  backIcon: {
-    fontSize: 24,
-  },
-  citySelectorButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: IkariamTheme.spacing.sm,
-  },
-  cityName: {
-    flexShrink: 1,
-  },
-  selectorArrow: {
-    opacity: 0.7,
-    fontSize: 12,
-  },
-  coords: {
-    opacity: 0.8,
-  },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
@@ -879,54 +793,6 @@ const styles = StyleSheet.create({
   modalTitle: {
     textAlign: 'center',
     marginBottom: IkariamTheme.spacing.lg,
-  },
-  cityOption: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: IkariamTheme.spacing.base,
-    paddingHorizontal: IkariamTheme.spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: IkariamTheme.colors.border.light,
-  },
-  cityOptionSelected: {
-    backgroundColor: IkariamTheme.colors.gold.light,
-    borderRadius: IkariamTheme.borderRadius.sm,
-  },
-  resourcesBar: {
-    backgroundColor: IkariamTheme.colors.parchment.dark,
-    borderBottomWidth: 1,
-    borderBottomColor: IkariamTheme.colors.border.base,
-    paddingVertical: IkariamTheme.spacing.xs,
-  },
-  resourcesScroll: {
-    flexGrow: 0,
-  },
-  resourcesList: {
-    flexDirection: 'row',
-    paddingHorizontal: IkariamTheme.spacing.sm,
-    gap: IkariamTheme.spacing.sm,
-  },
-  resourceBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: IkariamTheme.colors.parchment.base,
-    paddingHorizontal: IkariamTheme.spacing.sm,
-    paddingVertical: IkariamTheme.spacing.xs,
-    borderRadius: IkariamTheme.borderRadius.sm,
-    borderWidth: 1,
-    borderColor: IkariamTheme.colors.border.light,
-    gap: 4,
-  },
-  resourceBadgeHighlight: {
-    backgroundColor: IkariamTheme.colors.gold.light,
-    borderColor: IkariamTheme.colors.gold.base,
-  },
-  resourceIcon: {
-    fontSize: 14,
-  },
-  resourceValue: {
-    fontSize: 12,
   },
   loadingCostsBar: {
     flexDirection: 'row',
